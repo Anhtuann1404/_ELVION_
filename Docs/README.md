@@ -10,5 +10,18 @@ ELVION là trợ lý cá nhân điều khiển macOS bằng giọng nói, ưu ti
 4. [TECH_STACK.md](TECH_STACK.md): lựa chọn công nghệ và nguyên tắc thay thế.
 5. [CURRENT_TASKS.md](CURRENT_TASKS.md): backlog gần nhất, tiêu chí nghiệm thu.
 6. [DECISIONS.md](DECISIONS.md): quyết định đã thống nhất và điểm còn mở.
+7. [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md): cấu trúc thư mục, ranh giới module và phân chia dữ liệu.
 
 Các ví dụ hợp đồng bên dưới là bản thiết kế ban đầu, chưa phải API đã triển khai. Cập nhật tài liệu hợp đồng trước khi đổi giao diện giữa các module.
+
+8. [SPRINT0_WALKTHROUGH.md](SPRINT0_WALKTHROUGH.md): cách chạy và giải thích demo CLI đầu tiên.
+
+9. [CONFIRMATION_AND_ADAPTERS.md](CONFIRMATION_AND_ADAPTERS.md): xác nhận CLI và hợp đồng adapter chung.
+
+10. [MACOS_APP_OPEN.md](MACOS_APP_OPEN.md): native app.open đầu tiên và kết quả thử thực tế.
+
+11. [UI_DESIGN_SPEC.md](UI_DESIGN_SPEC.md): đặc tả thiết kế giao diện Liquid Glass Pure Titanium.
+
+12. [APPLE_NOTES.md](APPLE_NOTES.md): scope, tạo/tìm ghi chú thật và kiểm tra desktop.
+
+12. [TRACE_STORAGE.md](TRACE_STORAGE.md): trace local, privacy schema, lệnh lịch sử và xử lý lỗi ghi.

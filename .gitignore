@@ -83,3 +83,17 @@ DerivedData/
 !.env.example
 *.pem
 *.key
+
+# ELVION local config, runtime and research outputs
+configs/local.*
+/runtime/
+/artifacts/
+/model_weights/
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+xcuserdata/
+
+# Sanitized runtime traces, including custom --data-dir inside the repository
+traces/

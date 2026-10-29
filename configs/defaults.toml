@@ -1,0 +1,9 @@
+# Design defaults only. The scaffold CLI does not load this file yet.
+# Credentials belong in Keychain, not in this file.
+[application]
+locale = "vi-VN"
+interface = "cli"
+
+[inference]
+prefer_local = true
+cloud_enabled = false
