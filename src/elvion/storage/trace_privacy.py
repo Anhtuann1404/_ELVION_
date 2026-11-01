@@ -6,11 +6,24 @@ from uuid import UUID
 from elvion.core.contracts import ErrorCode, Method, TaskStatus
 
 SCHEMA_VERSION = 1
-CAPABILITIES = frozenset({"app.open", "note.create", "note.find"})
+CAPABILITIES = frozenset({"app.open", "note.create", "note.find", "web.open", "web.search", "web.open_result", "desktop.calculator.press7"})
 ADAPTERS = frozenset({"macos.app.native", "macos.notes.note.create", "macos.notes.note.find",
-                     "fake_notes.native_api", "fake_notes.accessibility", "fake_notes.vision", "fake_notes.dom"})
-POLICIES = frozenset({"demo-v2", "macos-app-v1", "macos-notes-v1", "base-v1"})
+                     "fake_notes.native_api", "fake_notes.accessibility", "fake_notes.vision", "fake_notes.dom"}) | frozenset('browser.dom.'+cap for cap in CAPABILITIES if cap.startswith('web.'))
+POLICIES = frozenset({"demo-v2", "macos-app-v1", "macos-notes-v1", "base-v1", "model-scoped-v1", "browser-web-v1"})
+ADAPTERS = ADAPTERS | {'browser.vision.web.open_result'}
+ADAPTERS = ADAPTERS | {'macos.calculator.ax.press7'}
+POLICIES = POLICIES | {'macos-calculator-ax-v1','macos-calculator-ax-v2', 'reminders-v1'}
+CAPABILITIES = CAPABILITIES | frozenset({"reminder.create", "reminder.list", "reminder.complete", "reminder.cancel"})
+ADAPTERS = ADAPTERS | frozenset(f"reminders.native.{cap}" for cap in ("reminder.create", "reminder.list", "reminder.complete", "reminder.cancel"))
 REASONS = frozenset({
+    "WEB_BROWSER_READY", "WEB_BROWSER_UNAVAILABLE",
+    "WEB_BROWSER_CLOSED", "WEB_NAVIGATION_UNCERTAIN", "WEB_SEARCH_NOT_VERIFIED",
+    "WEB_RESULT_EXPIRED", "WEB_ACTION_DENIED", "WEB_REDIRECT_OUTSIDE_SCOPE", "WEB_DRIVER_FAILURE",
+    "MODEL_UNAVAILABLE", "MODEL_TIMEOUT", "MODEL_INVALID_RESPONSE", "MODEL_INVALID_PROPOSAL",
+    "MODEL_PROVIDER_FAILURE", "MODEL_INPUT_TOO_LONG", "MODEL_SCOPE_REQUIRED",
+    "MODEL_LOCAL_REQUIRED",
+    "MODEL_UNGROUNDED_TITLE", "NOTE_TITLE_REQUIRED",
+    "REQUEST_SCOPE_OVERRIDE", "REQUEST_CONFIRMATION_OVERRIDE",
     "POLICY_DENIED", "UNSUPPORTED", "ELIGIBLE", "SIMULATED_READY", "SIMULATED_UNAVAILABLE",
     "DESCRIPTOR_UNSUPPORTED", "ADAPTER_PERMISSION_DENIED", "VERIFICATION_UNAVAILABLE", "ADAPTER_PROBE_FAILED",
     "NATIVE_TOOLS_AND_BUNDLE_AVAILABLE", "NOTES_APP_AVAILABLE_AUTOMATION_NOT_YET_CHECKED",
@@ -20,6 +33,28 @@ REASONS = frozenset({
     "MACOS_AUTOMATION_UNAVAILABLE", "INVALID_OPERATION", "MISSING_AUTHORIZATION", "AUTOMATION_UNAVAILABLE",
     "AUTOMATION_TIMEOUT_OR_FAILURE", "AUTOMATION_PROCESS_FAILED", "INVALID_AUTOMATION_RESPONSE",
 }) | frozenset(error.value for error in ErrorCode)
+REASONS = REASONS | frozenset({
+    'CALCULATOR_AX_READY', 'AUTHORIZATION_DENIED', 'ATTEMPT_ALREADY_RESERVED',
+    'CALCULATOR_BEFORE_NOT_ZERO_OR_UNKNOWN', 'AXPRESS_IPC_UNCERTAIN', 'AXPRESS_PRECOMMIT_FAILED',
+    'PREPARED', 'AXPRESS_RETURNED', 'AXPRESS_ERROR', 'TARGET_CHANGED',
+    'AX_PERMISSION_UNAVAILABLE', 'DISPLAY_LAYOUT_CHANGED', 'SAMPLED_VISIBILITY_UNCERTAIN',
+    'COMMIT_REJECTED', 'PROBE_TOO_LONG', 'AXPRESS_UNSUPPORTED',
+})
+REASONS = REASONS | frozenset({
+    "REMINDER_STORE_READY", "REMINDER_STORE_ERROR", "REMINDER_NOT_FOUND",
+    "REMINDER_INACTIVE", "INVALID_SCHEDULE_KIND", "UNSUPPORTED_CAPABILITY",
+})
+POLICIES = POLICIES | {"music-v1"}
+POLICIES = POLICIES | {"music-catalog-v1"}
+POLICIES = POLICIES | {"music-catalog-v2"}
+POLICIES = POLICIES | {"music-catalog-v3"}
+CAPABILITIES = CAPABILITIES | {"music.catalog.play", "music.catalog.pause"}
+ADAPTERS = ADAPTERS | {"music.catalog.ax.music.catalog.play", "music.catalog.ax.music.catalog.pause"}
+CAPABILITIES = CAPABILITIES | {"music.catalog.search", "music.catalog.open_artist"}
+ADAPTERS = ADAPTERS | {"music.catalog.ax.music.catalog.search", "music.catalog.ax.music.catalog.open_artist"}
+CAPABILITIES = CAPABILITIES | frozenset({"music.read_state", "music.current_track", "music.search", "music.play", "music.pause", "music.resume"})
+ADAPTERS = ADAPTERS | frozenset(f"macos.music.{cap}" for cap in ("music.read_state", "music.current_track", "music.search", "music.play", "music.pause", "music.resume", "app.open"))
+REASONS = REASONS | frozenset({"APPLE_MUSIC_READY", "MUSIC_APP_NOT_RUNNING", "TRACK_NOT_FOUND"})
 STATUSES = frozenset(item.value for item in TaskStatus)
 METHODS = frozenset(item.value for item in Method)
 ERRORS = frozenset(item.value for item in ErrorCode)
