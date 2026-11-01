@@ -1,0 +1,38 @@
+{
+  "purpose": "v4 synthetic regression research snapshot, not runtime authorization",
+  "date": "2026-10-30",
+  "live_vision_enabled": false,
+  "model": "qwen3.5:4b",
+  "grounder": "ocr-verified-v4",
+  "primary_ocr": "upscale2x-v2",
+  "secondary_ocr": "native-v1",
+  "label_crop_padding": 96,
+  "max_tokens": 512,
+  "reports": [
+    "artifacts/benchmarks/vision-labels/vision-labels-20261030T124147-795a5b0c.json",
+    "artifacts/benchmarks/browser-vision/browser-vision-20261030T124233-2e0c776a.json"
+  ],
+  "sha256": {
+    "src/elvion/vision/label_candidates.py": "c867893f62a2c9cdab9e32f0c675b2877e716412ae0aa5afc3f910379e5a5076",
+    "src/elvion/vision/semantic.py": "8075f0ba48201f904f1f11a75468d084efc05e297acc9892216fe09c0cb22333",
+    "src/elvion/vision/ocr.py": "dd4a8b5a8b203a814751c78de45c5c87fca396579eddd8619d7bd95c2a07ec7c",
+    "src/elvion/vision/image_crop.py": "d6020544ba38ef8549d7bc5acb4fb09daceee18faf1e06a81f640bbc7714ecdc",
+    "src/elvion/vision/recognize.swift": "3d9ab4c09faab428acaff256ebd631150675b1aba8ffd1716d29b26e74d68dcc",
+    "src/elvion/vision/ollama.py": "70aa6175f1244a755e949b40d16452c3a480365651bb141987bf725e8d548578",
+    "src/elvion/browser/controller.py": "874e3e13f12990533a003897d005531a76e8a191a8f120b0263d636d38e36b7c",
+    "src/elvion/browser/session.py": "0cb63632bce9a339f1361dc13b1faec4084a397133fff4dea28a58bfc98c1980",
+    "benchmarks/vision_labels/cases.py": "34dc4ad01058e16d21aa1f2f63b5421ccab579f04b61887cd0bba83b7f008a0b",
+    "benchmarks/vision_labels/runner.py": "ded5d9c9b9c3620f79bbec800900d00da8adba0d5b30d55a9b7f48beb313ad49",
+    "benchmarks/browser_vision/cases.py": "72ab13afd110d65e500ee266b2dca3faf729ac61a541961287467352835c48b0",
+    "benchmarks/browser_vision/challenge.py": "21aec6af4094187c5d84d88e9d08ff074f1b1b3aa9ae673e4bf5daeeabddbd0a",
+    "benchmarks/browser_vision/runner.py": "49428130ded8a790a88076f7de5bcc5b46a87215af9145b752097280f5cccc40",
+    "artifacts/benchmarks/vision-labels/vision-labels-20261030T124147-795a5b0c.json": "ec70a95979a932fb905e84213d8c8fd49daf58879923ed189b39e4a34e7d3dfc",
+    "artifacts/benchmarks/browser-vision/browser-vision-20261030T124233-2e0c776a.json": "09e7af0903d6c5c8afe6d45ae93cc4ccd0f7ccbacdd50b142996c8098009c504"
+  },
+  "limitations": [
+    "Already observed fixtures, not blind evaluation",
+    "No public website qualification",
+    "Browser regression 15/15 predates padding96; challenge and labels listed above use latest configuration",
+    "No claim of cold-start latency guarantee"
+  ]
+}

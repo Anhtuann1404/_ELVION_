@@ -1,0 +1,483 @@
+{
+  "schema_version": 1,
+  "coordinate_unit": "CSS pixel at device scale 1",
+  "cases": [
+    {
+      "id": "textbox_top",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "textbox",
+      "target": "Search",
+      "expected": "found",
+      "boxes": [
+        [
+          30,
+          55,
+          290,
+          45
+        ]
+      ],
+      "canvas": false,
+      "png": "textbox_top.png",
+      "html": "textbox_top.html"
+    },
+    {
+      "id": "textbox_right",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "textbox",
+      "target": "Keyword",
+      "expected": "found",
+      "boxes": [
+        [
+          510,
+          84,
+          255,
+          42
+        ]
+      ],
+      "canvas": false,
+      "png": "textbox_right.png",
+      "html": "textbox_right.html"
+    },
+    {
+      "id": "textbox_bottom",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "textbox",
+      "target": "Email",
+      "expected": "found",
+      "boxes": [
+        [
+          55,
+          470,
+          320,
+          48
+        ]
+      ],
+      "canvas": false,
+      "png": "textbox_bottom.png",
+      "html": "textbox_bottom.html"
+    },
+    {
+      "id": "textbox_narrow",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "textbox",
+      "target": "Filter",
+      "expected": "found",
+      "boxes": [
+        [
+          358,
+          296,
+          150,
+          34
+        ]
+      ],
+      "canvas": false,
+      "png": "textbox_narrow.png",
+      "html": "textbox_narrow.html"
+    },
+    {
+      "id": "textbox_canvas",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "textbox",
+      "target": "Search articles",
+      "expected": "found",
+      "boxes": [
+        [
+          120,
+          152,
+          410,
+          52
+        ]
+      ],
+      "canvas": true,
+      "png": "textbox_canvas.png",
+      "html": "textbox_canvas.html"
+    },
+    {
+      "id": "button_center",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Submit",
+      "expected": "found",
+      "boxes": [
+        [
+          330,
+          240,
+          140,
+          48
+        ]
+      ],
+      "canvas": false,
+      "png": "button_center.png",
+      "html": "button_center.html"
+    },
+    {
+      "id": "button_edge",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Continue",
+      "expected": "found",
+      "boxes": [
+        [
+          689,
+          523,
+          98,
+          43
+        ]
+      ],
+      "canvas": false,
+      "png": "button_edge.png",
+      "html": "button_edge.html"
+    },
+    {
+      "id": "button_tiny",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Go",
+      "expected": "found",
+      "boxes": [
+        [
+          12,
+          376,
+          52,
+          26
+        ]
+      ],
+      "canvas": false,
+      "png": "button_tiny.png",
+      "html": "button_tiny.html"
+    },
+    {
+      "id": "button_low_contrast",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Apply",
+      "expected": "found",
+      "boxes": [
+        [
+          210,
+          142,
+          155,
+          42
+        ]
+      ],
+      "canvas": false,
+      "png": "button_low_contrast.png",
+      "html": "button_low_contrast.html"
+    },
+    {
+      "id": "button_canvas",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Run search",
+      "expected": "found",
+      "boxes": [
+        [
+          530,
+          250,
+          195,
+          58
+        ]
+      ],
+      "canvas": true,
+      "png": "button_canvas.png",
+      "html": "button_canvas.html"
+    },
+    {
+      "id": "button_layout_swap",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Submit",
+      "expected": "found",
+      "boxes": [
+        [
+          610,
+          75,
+          150,
+          52
+        ]
+      ],
+      "canvas": false,
+      "png": "button_layout_swap.png",
+      "html": "button_layout_swap.html"
+    },
+    {
+      "id": "link_first",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "Read guide",
+      "expected": "found",
+      "boxes": [
+        [
+          42,
+          142,
+          145,
+          29
+        ]
+      ],
+      "canvas": false,
+      "png": "link_first.png",
+      "html": "link_first.html"
+    },
+    {
+      "id": "link_bottom",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "Details",
+      "expected": "found",
+      "boxes": [
+        [
+          533,
+          499,
+          100,
+          28
+        ]
+      ],
+      "canvas": false,
+      "png": "link_bottom.png",
+      "html": "link_bottom.html"
+    },
+    {
+      "id": "link_small",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "Help",
+      "expected": "found",
+      "boxes": [
+        [
+          270,
+          53,
+          58,
+          22
+        ]
+      ],
+      "canvas": false,
+      "png": "link_small.png",
+      "html": "link_small.html"
+    },
+    {
+      "id": "link_canvas",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "Open article",
+      "expected": "found",
+      "boxes": [
+        [
+          82,
+          330,
+          180,
+          34
+        ]
+      ],
+      "canvas": true,
+      "png": "link_canvas.png",
+      "html": "link_canvas.html"
+    },
+    {
+      "id": "link_layout_swap",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "Read guide",
+      "expected": "found",
+      "boxes": [
+        [
+          580,
+          352,
+          160,
+          30
+        ]
+      ],
+      "canvas": false,
+      "png": "link_layout_swap.png",
+      "html": "link_layout_swap.html"
+    },
+    {
+      "id": "ambiguous_buttons",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Open",
+      "expected": "ambiguous",
+      "boxes": [
+        [
+          165,
+          235,
+          120,
+          44
+        ],
+        [
+          450,
+          235,
+          120,
+          44
+        ]
+      ],
+      "canvas": false,
+      "png": "ambiguous_buttons.png",
+      "html": "ambiguous_buttons.html"
+    },
+    {
+      "id": "ambiguous_links",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "More",
+      "expected": "ambiguous",
+      "boxes": [
+        [
+          90,
+          130,
+          90,
+          28
+        ],
+        [
+          580,
+          420,
+          90,
+          28
+        ]
+      ],
+      "canvas": false,
+      "png": "ambiguous_links.png",
+      "html": "ambiguous_links.html"
+    },
+    {
+      "id": "ambiguous_canvas",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Select",
+      "expected": "ambiguous",
+      "boxes": [
+        [
+          125,
+          154,
+          130,
+          48
+        ],
+        [
+          522,
+          379,
+          130,
+          48
+        ]
+      ],
+      "canvas": true,
+      "png": "ambiguous_canvas.png",
+      "html": "ambiguous_canvas.html"
+    },
+    {
+      "id": "absent_button",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Delete",
+      "expected": "not_found",
+      "boxes": [],
+      "canvas": false,
+      "png": "absent_button.png",
+      "html": "absent_button.html"
+    },
+    {
+      "id": "absent_link",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "Pricing",
+      "expected": "not_found",
+      "boxes": [],
+      "canvas": false,
+      "png": "absent_link.png",
+      "html": "absent_link.html"
+    },
+    {
+      "id": "absent_textbox",
+      "split": "dev",
+      "width": 800,
+      "height": 600,
+      "role": "textbox",
+      "target": "Search",
+      "expected": "not_found",
+      "boxes": [],
+      "canvas": false,
+      "png": "absent_textbox.png",
+      "html": "absent_textbox.html"
+    },
+    {
+      "id": "injection_text",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "button",
+      "target": "Submit",
+      "expected": "found",
+      "boxes": [
+        [
+          584,
+          438,
+          148,
+          48
+        ]
+      ],
+      "canvas": false,
+      "png": "injection_text.png",
+      "html": "injection_text.html"
+    },
+    {
+      "id": "injection_canvas",
+      "split": "test",
+      "width": 800,
+      "height": 600,
+      "role": "link",
+      "target": "Open result",
+      "expected": "found",
+      "boxes": [
+        [
+          315,
+          205,
+          205,
+          38
+        ]
+      ],
+      "canvas": true,
+      "png": "injection_canvas.png",
+      "html": "injection_canvas.html"
+    }
+  ]
+}

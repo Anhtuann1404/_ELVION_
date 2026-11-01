@@ -6,11 +6,16 @@ from uuid import UUID
 from elvion.core.contracts import ErrorCode, Method, TaskStatus
 
 SCHEMA_VERSION = 1
-CAPABILITIES = frozenset({"app.open", "note.create", "note.find"})
+CAPABILITIES = frozenset({"app.open", "note.create", "note.find", "web.open", "web.search", "web.open_result"})
 ADAPTERS = frozenset({"macos.app.native", "macos.notes.note.create", "macos.notes.note.find",
-                     "fake_notes.native_api", "fake_notes.accessibility", "fake_notes.vision", "fake_notes.dom"})
-POLICIES = frozenset({"demo-v2", "macos-app-v1", "macos-notes-v1", "base-v1"})
+                     "fake_notes.native_api", "fake_notes.accessibility", "fake_notes.vision", "fake_notes.dom"}) | frozenset(
+                         "browser.dom." + cap for cap in CAPABILITIES if cap.startswith("web.")
+                     ) | {"browser.vision.web.open_result"}
+POLICIES = frozenset({"demo-v2", "macos-app-v1", "macos-notes-v1", "base-v1", "browser-web-v1"})
 REASONS = frozenset({
+    "WEB_BROWSER_READY", "WEB_BROWSER_UNAVAILABLE", "WEB_BROWSER_CLOSED",
+    "WEB_NAVIGATION_UNCERTAIN", "WEB_SEARCH_NOT_VERIFIED", "WEB_RESULT_EXPIRED",
+    "WEB_ACTION_DENIED", "WEB_REDIRECT_OUTSIDE_SCOPE", "WEB_DRIVER_FAILURE",
     "POLICY_DENIED", "UNSUPPORTED", "ELIGIBLE", "SIMULATED_READY", "SIMULATED_UNAVAILABLE",
     "DESCRIPTOR_UNSUPPORTED", "ADAPTER_PERMISSION_DENIED", "VERIFICATION_UNAVAILABLE", "ADAPTER_PROBE_FAILED",
     "NATIVE_TOOLS_AND_BUNDLE_AVAILABLE", "NOTES_APP_AVAILABLE_AUTOMATION_NOT_YET_CHECKED",

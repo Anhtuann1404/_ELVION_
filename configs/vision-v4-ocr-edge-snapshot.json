@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-30",
+  "scope": "observational regression checkpoint after bounded native OCR edge normalization",
+  "live_vision_enabled": false,
+  "report": "artifacts/benchmarks/vision-labels/vision-labels-20261030T144854-4e2b0a75.json",
+  "report_sha256": "c2684b83a907e18d43876be966bd183b3aad5687ba8d47ee934d5bc08a5e8343",
+  "source_sha256": {
+    "src/elvion/vision/label_candidates.py": "ac864c71362205fda06edcee2c992678b6f75874d0b6221e774fe47b2d2261d5",
+    "src/elvion/vision/semantic.py": "466f3ba20c7302e4d5949e883b75127336f15b422b73fd98d3f8da9426ee2ced",
+    "src/elvion/vision/ocr.py": "cb7fa56f41ca091a76ec23123fcb6f87c692929eee6effc65e4adcc209e25679",
+    "src/elvion/vision/image_crop.py": "6ccca8c78b5ddb16c061d9c93004e8d1997a792fe5053a112095731481f94ced",
+    "src/elvion/vision/recognize.swift": "f1484888796c1a5e803eecfeddc7ccd64d27fdfdde6defa80288fdcde8fc9803",
+    "src/elvion/vision/ollama.py": "70aa6175f1244a755e949b40d16452c3a480365651bb141987bf725e8d548578"
+  },
+  "limitations": [
+    "Public observations from different source versions must not be pooled as one frozen-model score",
+    "Browser actions not requalified after latest changes",
+    "Web held_out not yet evaluated",
+    "Only limited developer-reviewed image oracles, some AI self-review"
+  ]
+}

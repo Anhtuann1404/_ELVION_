@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-30",
+  "purpose": "research regression snapshot after icon hypothesis, local anchor and full-role veto",
+  "model": "qwen3.5:4b",
+  "grounder": "ocr-verified-v4",
+  "live_vision_enabled": false,
+  "reports": [
+    "artifacts/benchmarks/browser-vision/browser-vision-20261030T135657-0a593a15.json",
+    "artifacts/benchmarks/vision-labels/vision-labels-20261030T135206-aa502fc3.json"
+  ],
+  "source_sha256": {
+    "src/elvion/vision/label_candidates.py": "c416928d7386dc4d895b14ce4029a9993d7ed885e342aa067e32b5c9cb14ca91",
+    "src/elvion/vision/semantic.py": "466f3ba20c7302e4d5949e883b75127336f15b422b73fd98d3f8da9426ee2ced",
+    "src/elvion/vision/ocr.py": "dd4a8b5a8b203a814751c78de45c5c87fca396579eddd8619d7bd95c2a07ec7c",
+    "src/elvion/vision/image_crop.py": "d6020544ba38ef8549d7bc5acb4fb09daceee18faf1e06a81f640bbc7714ecdc",
+    "src/elvion/vision/recognize.swift": "3d9ab4c09faab428acaff256ebd631150675b1aba8ffd1716d29b26e74d68dcc",
+    "src/elvion/vision/ollama.py": "70aa6175f1244a755e949b40d16452c3a480365651bb141987bf725e8d548578",
+    "src/elvion/browser/controller.py": "874e3e13f12990533a003897d005531a76e8a191a8f120b0263d636d38e36b7c",
+    "src/elvion/browser/session.py": "0cb63632bce9a339f1361dc13b1faec4084a397133fff4dea28a58bfc98c1980"
+  },
+  "report_sha256": {
+    "artifacts/benchmarks/browser-vision/browser-vision-20261030T135657-0a593a15.json": "43f4be9ef5088c121f11f0b9161857fd157bd6666e0fb4b3d8e4898945a9dc92",
+    "artifacts/benchmarks/vision-labels/vision-labels-20261030T135206-aa502fc3.json": "b53f0b79d83ca744613cd6339a75f65dc5989d931786a755a17eddcf4128d327"
+  },
+  "limitations": [
+    "Previously observed synthetic fixtures; not blind generalization",
+    "Public Wikipedia regression after full-role veto still pending",
+    "No public-web click qualification"
+  ]
+}

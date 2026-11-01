@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-30",
+  "scope": "observation checkpoint after native delimiter sublines and selective marker",
+  "model": "qwen3.5:4b",
+  "grounder": "ocr-verified-v4",
+  "live_vision_enabled": false,
+  "source_sha256": {
+    "src/elvion/vision/label_candidates.py": "f4f87bbf071588ab8daf19d616df9cbd8012d280bf3019f91d7748d54b7ab78c",
+    "src/elvion/vision/semantic.py": "466f3ba20c7302e4d5949e883b75127336f15b422b73fd98d3f8da9426ee2ced",
+    "src/elvion/vision/ocr.py": "68d3900536b93310798a83f543229de1ef4fca3109200320f0a344fc442ebcaf",
+    "src/elvion/vision/image_crop.py": "6ccca8c78b5ddb16c061d9c93004e8d1997a792fe5053a112095731481f94ced",
+    "src/elvion/vision/recognize.swift": "18d6cdb6d4d05965436238c219a77557cf019fef09cd83e4b08fda6f873d1fe4",
+    "src/elvion/vision/ollama.py": "70aa6175f1244a755e949b40d16452c3a480365651bb141987bf725e8d548578"
+  },
+  "labels_report": "artifacts/benchmarks/vision-labels/vision-labels-20261030T151837-1c5d231b.json",
+  "labels_report_sha256": "6a771afc6d1427cc3327b4028d97591d83bb7532947562d86398c0f169e5404a",
+  "public_regression_manifest": "artifacts/benchmarks/web-observation/capture-0b3622ac6410/reproduction-1523152f6e27.json",
+  "limitations": [
+    "Existing synthetic labels and Wikipedia scene have been used during development",
+    "Same-capture repeats are not independent scenes",
+    "Public dev/held_out dataset incomplete; no generalization quality claim",
+    "Browser actions not requalified for current source"
+  ]
+}

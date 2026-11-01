@@ -1,0 +1,1 @@
+"""Synthetic viewport grounding evaluation."""

@@ -1,0 +1,16 @@
+{
+  "purpose": "research_only_before_first_challenge_inference",
+  "live_vision_enabled": false,
+  "suite": "challenge",
+  "grounder": "ocr-verified-v2",
+  "ocr_profile": "upscale2x-v2",
+  "max_tokens": 512,
+  "files": {
+    "benchmarks/browser_vision/challenge.py": "21aec6af4094187c5d84d88e9d08ff074f1b1b3aa9ae673e4bf5daeeabddbd0a",
+    "src/elvion/vision/semantic.py": "e46d099c3d314ad3cd4d2b33b3db6ba2c65c5d929df619e7079ba7c828181038",
+    "src/elvion/vision/ocr.py": "7bc710e15ec398c0a9c538db26e310fc12b523a4f236a726f538cda79b1e6992",
+    "src/elvion/vision/recognize.swift": "3d9ab4c09faab428acaff256ebd631150675b1aba8ffd1716d29b26e74d68dcc",
+    "src/elvion/vision/image_crop.py": "658b99479313f6f6b6e6b1ead5c1f00e0cf852dbac44fc61d012decfd1e41958",
+    "src/elvion/vision/ollama.py": "70aa6175f1244a755e949b40d16452c3a480365651bb141987bf725e8d548578"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-30",
+  "purpose": "freeze grounder and prespecified public held_out manifest before model evaluation",
+  "source_sha256": {
+    "src/elvion/vision/label_candidates.py": "f4f87bbf071588ab8daf19d616df9cbd8012d280bf3019f91d7748d54b7ab78c",
+    "src/elvion/vision/semantic.py": "466f3ba20c7302e4d5949e883b75127336f15b422b73fd98d3f8da9426ee2ced",
+    "src/elvion/vision/ocr.py": "68d3900536b93310798a83f543229de1ef4fca3109200320f0a344fc442ebcaf",
+    "src/elvion/vision/image_crop.py": "6ccca8c78b5ddb16c061d9c93004e8d1997a792fe5053a112095731481f94ced",
+    "src/elvion/vision/recognize.swift": "18d6cdb6d4d05965436238c219a77557cf019fef09cd83e4b08fda6f873d1fe4",
+    "src/elvion/vision/ollama.py": "70aa6175f1244a755e949b40d16452c3a480365651bb141987bf725e8d548578"
+  },
+  "model": "qwen3.5:4b",
+  "max_tokens": 512,
+  "manifest_sha256_file": "0b402de5cb96f7cc4a0012fc65b6aff5945de687609f4baab6389ccd2257fc3a",
+  "dev_run": "artifacts/benchmarks/web-observation/plan-run-c4d54d4b564b.json",
+  "dev_run_sha256": "cb614a28bb73780500802b59997aa7ccb5e98f9af1c259e7dd87aba7398406b3",
+  "dev_plan_sha256": "9b5cb5fbcf34744818bb6df494d4c53256bfb50c06dbbe9bfe53095669f0c860",
+  "held_out_inference_started": false,
+  "live_vision_enabled": false,
+  "limitations": [
+    "Model name recorded; model weight digest not pinned here",
+    "Pilot annotations include AI review/self-review",
+    "Public website versions may change; bind oracle to captured images",
+    "Dev success is not blind generalization"
+  ]
+}
