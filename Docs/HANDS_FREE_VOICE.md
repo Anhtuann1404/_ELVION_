@@ -133,18 +133,7 @@ PYTHONPATH=src:. python3 -m unittest discover -s tests -p "test_*.py"
 
 ---
 
-## 4. Nhật Ký Lỗi Đã Ghi Nhận và Xử Lý (`Docs/BUG_LOG.md`)
-
-Trong quá trình phát triển tính năng, 2 vấn đề phát sinh trong môi trường thực tế đã được lập hồ sơ và giải quyết triệt để:
-
-1. **`VOICE-HANDSFREE-001`**: Runner ban đầu chạy kịch bản mô phỏng tĩnh thay vì mở microphone thật.
-   - *Khắc phục*: Triển khai `stream_capture.swift` và `streamer.py` truyền dữ liệu PCM thời gian thực từ phần cứng micro macOS vào `ContinuousVoiceSession`.
-2. **`VOICE-HANDSFREE-002`**: VAD không tự ngắt trên micro laptop và Whisper bị ảo giác sinh lời thoại ngẫu nhiên khi im lặng.
-   - *Khắc phục*: Bổ sung `listen_timeout_seconds = 3.5s`, nâng ngưỡng lọc tạp âm quạt tản nhiệt lên 350 RMS, lọc năng lượng câu nói $< 280$ RMS, và tạo module [hallucination.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/hallucination.py).
-
----
-
-## 5. Hướng Dẫn Vận Hành và Kiểm Thử (How to Test)
+## 4. Hướng Dẫn Vận Hành và Kiểm Thử (How to Test)
 
 ### Cách 1: Nói chuyện thật bằng Microphone trên máy Mac (Chế độ mặc định)
 Mở cửa sổ Terminal và chạy:
