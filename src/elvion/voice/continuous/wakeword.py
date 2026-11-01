@@ -6,9 +6,11 @@ import struct
 import time
 from typing import Callable, Protocol, runtime_checkable
 
+from elvion.voice.continuous.hallucination import is_whisper_hallucination
+
 WAKE_KEYWORDS = ("elvion", "hey elvion", "ê elvion", "ơi elvion", "elvion ơi")
 _NORMALIZED_KEYWORD_RE = re.compile(
-    r"\b(?:hey\s+|ê\s+|ơi\s+)?(?:e[ol]|ai|eo|em|en)\s*vi[oôe]?n?\b",
+    r"\b(?:hey\s+|ê\s+|ơi\s+)?(?:el|eo|en|e)\s*vi[oô]n(?:\s+ơi)?\b|\belvion\b",
     re.IGNORECASE,
 )
 
@@ -89,7 +91,7 @@ class KeywordWakeWordDetector:
             self._last_check_time = now
             try:
                 transcript = self.verifier(audio_bytes).strip().lower()
-                if self._matches_text(transcript):
+                if transcript and not is_whisper_hallucination(transcript) and self._matches_text(transcript):
                     return WakeWordResult(
                         detected=True,
                         keyword="elvion",

@@ -95,8 +95,13 @@ def run_live_mic(speak_enabled: bool = True) -> None:
 
     wake_detector = KeywordWakeWordDetector(
         verifier=verify_wake_slice,
-        energy_threshold=350.0,
+        energy_threshold=420.0,
         min_check_interval=0.5,
+    )
+    vad = VoiceActivityDetector(
+        min_speech_rms=350.0,
+        speech_multiplier=2.8,
+        silence_hangover_ms=800,
     )
 
     def on_state_change(new_state: ContinuousSessionState) -> None:
@@ -146,7 +151,9 @@ def run_live_mic(speak_enabled: bool = True) -> None:
     session = ContinuousVoiceSession(
         voice_session=adapter,
         wake_detector=wake_detector,
+        vad=vad,
         follow_up_seconds=5.0,
+        listen_timeout_seconds=3.5,
         on_state_change=on_state_change,
         on_wake=on_wake,
         on_transcript=on_transcript,
@@ -167,7 +174,7 @@ def run_live_mic(speak_enabled: bool = True) -> None:
         while running:
             time.sleep(0.2)
             session.tick()
-            if last_state == ContinuousSessionState.FOLLOW_UP and session.state == ContinuousSessionState.STANDBY:
+            if last_state in (ContinuousSessionState.FOLLOW_UP, ContinuousSessionState.LISTENING) and session.state == ContinuousSessionState.STANDBY:
                 play_sound("Tink")
             last_state = session.state
 

@@ -20,8 +20,8 @@ class VoiceActivityDetector:
         *,
         sample_rate: int = 16000,
         frame_duration_ms: int = 20,
-        min_speech_rms: float = 120.0,
-        speech_multiplier: float = 2.5,
+        min_speech_rms: float = 300.0,
+        speech_multiplier: float = 2.8,
         speech_onset_frames: int = 3,
         silence_hangover_ms: int = 800,
         max_speech_duration_ms: int = 15000,
@@ -84,8 +84,8 @@ class VoiceActivityDetector:
                     self._total_speech_frames = self._consecutive_speech_frames
             else:
                 self._consecutive_speech_frames = 0
-                # Adapt noise floor slowly during silence
-                self.noise_floor = 0.95 * self.noise_floor + 0.05 * rms
+                # Adapt noise floor slowly during silence (bounded below speech threshold)
+                self.noise_floor = min(self.min_speech_rms * 0.85, 0.95 * self.noise_floor + 0.05 * rms)
 
         elif self.state in (VADState.SPEECH_STARTED, VADState.SPEAKING):
             self.state = VADState.SPEAKING

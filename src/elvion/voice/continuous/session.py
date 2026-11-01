@@ -7,9 +7,12 @@ import threading
 import time
 from typing import Callable
 
+from elvion.voice.continuous.hallucination import is_whisper_hallucination
 from elvion.voice.continuous.ring_buffer import AudioRingBuffer
 from elvion.voice.continuous.vad import VADState, VoiceActivityDetector
-from elvion.voice.continuous.wakeword import KeywordWakeWordDetector, WakeWordDetector, WakeWordResult
+from elvion.voice.continuous.wakeword import (
+    KeywordWakeWordDetector, WakeWordDetector, WakeWordResult, calculate_pcm_rms,
+)
 
 
 class ContinuousSessionState(StrEnum):
@@ -32,6 +35,7 @@ class ContinuousVoiceSession:
         vad: VoiceActivityDetector | None = None,
         ring_buffer: AudioRingBuffer | None = None,
         follow_up_seconds: float = 5.0,
+        listen_timeout_seconds: float = 3.5,
         clock: Callable[[], float] = time.monotonic,
         on_state_change: Callable[[ContinuousSessionState], None] | None = None,
         on_wake: Callable[[WakeWordResult], None] | None = None,
@@ -46,6 +50,7 @@ class ContinuousVoiceSession:
         self.ring_buffer = ring_buffer if ring_buffer is not None else AudioRingBuffer(capacity_seconds=4.0)
 
         self.follow_up_seconds = float(follow_up_seconds)
+        self.listen_timeout_seconds = float(listen_timeout_seconds)
         self.clock = clock
         self.wake_slice_seconds = float(wake_slice_seconds)
         self.min_utterance_bytes = int(min_utterance_bytes)
@@ -59,6 +64,7 @@ class ContinuousVoiceSession:
         self._lock = threading.Lock()
         self._active_utterance_pcm = bytearray()
         self._follow_up_deadline = 0.0
+        self._listen_deadline = 0.0
         self._running = False
         self._last_processed_transcript = ""
 
@@ -118,6 +124,7 @@ class ContinuousVoiceSession:
                     # Prepare for speech capture
                     self.vad.reset()
                     self._active_utterance_pcm.clear()
+                    self._listen_deadline = now + self.listen_timeout_seconds
                     self._set_state(ContinuousSessionState.LISTENING)
 
             # -------------------------------------------------------------
@@ -135,11 +142,19 @@ class ContinuousVoiceSession:
                         self._set_state(ContinuousSessionState.LISTENING)
                         self._active_utterance_pcm.clear()
                         self._active_utterance_pcm.extend(chunk)
+                        self._listen_deadline = now + self.listen_timeout_seconds
 
             # -------------------------------------------------------------
             # State 3: LISTENING (Capturing speech until silence or limit)
             # -------------------------------------------------------------
             elif self.state == ContinuousSessionState.LISTENING:
+                # If user hasn't started speaking and listening timeout expired -> abort to standby
+                if self.vad.state == VADState.SILENCE and now >= self._listen_deadline:
+                    self._set_state(ContinuousSessionState.STANDBY)
+                    self._active_utterance_pcm.clear()
+                    self.vad.reset()
+                    return
+
                 self._active_utterance_pcm.extend(chunk)
                 vad_state = self.vad.process_frame(chunk)
                 if vad_state == VADState.SPEECH_ENDED:
@@ -147,15 +162,20 @@ class ContinuousVoiceSession:
                     self._set_state(ContinuousSessionState.PROCESSING)
                     utterance_pcm = bytes(self._active_utterance_pcm)
                     self._active_utterance_pcm.clear()
-                    # Process utterance in separate invocation or synchronously
                     self._dispatch_utterance(utterance_pcm)
 
     def _dispatch_utterance(self, pcm_data: bytes) -> None:
         """Process captured speech through existing VoiceSession without altering it."""
         if not pcm_data or len(pcm_data) < self.min_utterance_bytes:
-            # Too short or noise -> revert to follow up or standby
-            self._set_state(ContinuousSessionState.FOLLOW_UP)
-            self._follow_up_deadline = self.clock() + self.follow_up_seconds
+            # Too short or noise -> revert to standby
+            self._set_state(ContinuousSessionState.STANDBY)
+            self.vad.reset()
+            return
+
+        # Check utterance energy: reject low-amplitude ambient noise (RMS < 280)
+        rms = calculate_pcm_rms(pcm_data)
+        if rms < 280.0:
+            self._set_state(ContinuousSessionState.STANDBY)
             self.vad.reset()
             return
 
@@ -177,7 +197,8 @@ class ContinuousVoiceSession:
                         res = vi.transcriber.transcribe(wav_path)
                         transcript = res.text if hasattr(res, "text") else str(res)
 
-                if transcript:
+                # Filter out empty or Whisper phantom hallucinations
+                if transcript and not is_whisper_hallucination(transcript):
                     self._last_processed_transcript = transcript
                     if self.on_transcript is not None:
                         self.on_transcript(transcript)
@@ -198,15 +219,32 @@ class ContinuousVoiceSession:
             except Exception:
                 pass
 
+        # If no valid transcript or reply was produced, gracefully sleep
+        if not reply_text:
+            self._set_state(ContinuousSessionState.STANDBY)
+            self.vad.reset()
+            return
+
         # Complete turn and transition to FOLLOW_UP
         self._set_state(ContinuousSessionState.FOLLOW_UP)
         self._follow_up_deadline = self.clock() + self.follow_up_seconds
         self.vad.reset()
 
     def tick(self) -> None:
-        """Periodic clock maintenance (checks follow-up timeout expiration)."""
+        """Periodic clock maintenance (checks follow-up and listening timeout expiration)."""
         with self._lock:
             if not self._running:
+                return
+            now = self.clock()
+            if self.state == ContinuousSessionState.FOLLOW_UP:
+                if now >= self._follow_up_deadline:
+                    self._set_state(ContinuousSessionState.STANDBY)
+                    self.vad.reset()
+            elif self.state == ContinuousSessionState.LISTENING:
+                if self.vad.state == VADState.SILENCE and now >= self._listen_deadline:
+                    self._set_state(ContinuousSessionState.STANDBY)
+                    self._active_utterance_pcm.clear()
+                    self.vad.reset()
                 return
             if self.state == ContinuousSessionState.FOLLOW_UP:
                 if self.clock() >= self._follow_up_deadline:

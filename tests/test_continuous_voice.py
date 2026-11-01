@@ -330,6 +330,45 @@ class ContinuousVoiceTests(unittest.TestCase):
         # Must return to STANDBY
         self.assertEqual(session.state, ContinuousSessionState.STANDBY)
 
+    def test_listening_timeout_returns_to_standby_when_user_silent(self):
+        """If user wakes ELVION but stays silent, LISTENING automatically times out to STANDBY."""
+        simulated_time = [500.0]
+        clock = lambda: simulated_time[0]
+
+        session = ContinuousVoiceSession(
+            listen_timeout_seconds=3.0,
+            clock=clock,
+        )
+        session.start()
+        session._set_state(ContinuousSessionState.LISTENING)
+        session._listen_deadline = clock() + 3.0
+
+        silence_frame = make_silence_pcm(duration_seconds=0.02, amplitude=10.0)
+
+        # 1. Advance clock by 1.5s -> still listening
+        simulated_time[0] += 1.5
+        session.feed_audio(silence_frame)
+        self.assertEqual(session.state, ContinuousSessionState.LISTENING)
+
+        # 2. Advance clock past 3.0s deadline -> must auto-stop and return to STANDBY
+        simulated_time[0] += 2.0
+        session.feed_audio(silence_frame)
+        self.assertEqual(session.state, ContinuousSessionState.STANDBY)
+
+    def test_whisper_hallucination_filter(self):
+        """Whisper hallucination filter rejects YouTube outros, repetitive loops, and empty artifacts."""
+        from elvion.voice.continuous.hallucination import is_whisper_hallucination
+
+        self.assertTrue(is_whisper_hallucination("Cảm ơn các bạn đã theo dõi video."))
+        self.assertTrue(is_whisper_hallucination("Hãy like và đăng ký kênh nhé."))
+        self.assertTrue(is_whisper_hallucination("Subtitles by Amara.org"))
+        self.assertTrue(is_whisper_hallucination("ừm ừm ừm ừm"))
+        self.assertTrue(is_whisper_hallucination("..."))
+
+        self.assertFalse(is_whisper_hallucination("Mở Apple Music"))
+        self.assertFalse(is_whisper_hallucination("Thời tiết hôm nay thế nào"))
+        self.assertFalse(is_whisper_hallucination("Tạo ghi chú đi chợ"))
+
     def test_session_stop_clears_memory_and_resets(self):
         """Stopping session clears memory buffers and resets state cleanly."""
         session = ContinuousVoiceSession()

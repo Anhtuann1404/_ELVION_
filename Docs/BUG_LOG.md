@@ -4184,4 +4184,29 @@ lưu cho người dùng hoặc đường chạy Qwen thật.
   3. Đổi mặc định của `scripts/run_handsfree_voice.py` thành `run_live_mic()` lắng nghe microphone thật; chỉ chạy mô phỏng khi người dùng truyền tường minh cờ `--simulate`.
 - **Kiểm chứng:** Kiểm tra biên dịch `stream_capture` qua `swiftc` đạt; kiểm tra đọc 10 chunk từ mic đạt 5932 bytes PCM; kiểm tra phản hồi từ `ConversationService` với `qwen3.5:4b` đạt câu trả lời tiếng Việt. Trạng thái: đã sửa, chờ người dùng kiểm chứng trên máy thật.
 
+## VOICE-HANDSFREE-002 — VAD không tự ngắt trên micro laptop và Whisper ảo giác (hallucination) sinh lời thoại ngẫu nhiên khi im lặng (02/11/2026)
+
+- **Triệu chứng/phạm vi:** Khi mở `run_handsfree_voice.py` trong phòng bình thường và không nói gì, sau vài giây hệ thống tự kích hoạt wake word hoặc tự nhảy vào listening, không tự dừng ghi âm, và tự in ra/phát ra các câu thoại ngẫu nhiên ("random dialogue") từ mô hình.
+- **Bằng chứng/tái hiện:**
+  1. Ngưỡng `min_speech_rms = 120.0` trong `VoiceActivityDetector` thấp hơn độ ồn nền (noise floor) thực tế của microphone laptop (thường dao động 150-300 RMS), khiến VAD nhận nhầm tiếng quạt/tiếng ồn phòng là tiếng nói liên tục và không đạt điều kiện `silence_hangover` (800ms) để tự ngắt.
+  2. Trong `LISTENING`, thiếu cơ chế `listen_timeout_seconds` (nếu sau khi thức giấc mà người dùng không nói gì quá 3.5s thì phải tự huỷ và quay về `STANDBY`).
+  3. `KeywordWakeWordDetector` có biểu thức regex `_NORMALIZED_KEYWORD_RE` quá lỏng (`(?:e[ol]|ai|eo|em|en)\s*vi[oôe]?n?`), dễ khớp các từ ảo giác Whisper sinh ra từ tiếng ồn phòng như "em vi...", "ai viên".
+  4. Mô hình Whisper khi nhận 15s tiếng ồn/im lặng có hiện tượng hallucination sinh văn bản rác, sau đó văn bản này được đẩy vào LLM Ollama khiến Ollama sinh câu trả lời ngẫu nhiên.
+- **Tác động/trạng thái:** Đang xử lý. Vòng lặp hands-free không thể sử dụng ổn định trong môi trường thực tế nếu chưa lọc ồn và chống ảo giác.
+- **Cách giải quyết:**
+  1. Nâng ngưỡng năng lượng âm thanh `min_speech_rms` từ 120.0 lên mức thích ứng tự động (Adaptive Calibration) và ngưỡng thực tế cao hơn (~350-450 RMS cho micro Mac), và yêu cầu tỷ lệ ZCR (Zero-Crossing Rate) phù hợp với giọng nói con người (tránh quạt tản nhiệt).
+  2. Bổ sung `listen_timeout_seconds = 3.5` trong `ContinuousVoiceSession`: nếu trong trạng thái `LISTENING` mà không có tiếng nói bắt đầu trong 3.5 giây, tự động quay về `STANDBY` và phát âm thanh huỷ.
+  3. Siết chặt regex wake word trong `wakeword.py`: bắt buộc khớp đúng âm tiết "elvion" / "eo-vi-on" / "en-vi-on" có ranh giới từ rõ ràng (`\b`), loại bỏ các nhánh so khớp quá ngắn.
+  4. Bổ sung bộ lọc ảo giác (Whisper Hallucination Filter): kiểm tra độ dài câu, tỷ lệ lặp từ, danh sách câu hallucination phổ biến của Whisper tiếng Việt (như "Cảm ơn các bạn", "Hãy like", "Subtitles by", v.v.), và từ chối xử lý nếu âm thanh không vượt qua kiểm tra năng lượng giọng nói thực tế.
+  5. Thêm ngưỡng năng lượng tối thiểu cho utterance: chỉ gửi vào STT nếu utterance có chứa năng lượng giọng nói thật (`speech_frames >= 15`, tức ít nhất 300ms giọng nói có năng lượng cao).
+- **Bước tiếp theo:** Áp dụng các sửa đổi trên trong `vad.py`, `wakeword.py`, `session.py` và `run_handsfree_voice.py`, kiểm chứng với test suite và chạy kiểm thử micro trực tiếp.
+
+**Nguyên nhân và cách giải quyết (02/11/2026):**
+- Đã tạo `src/elvion/voice/continuous/hallucination.py` định nghĩa `is_whisper_hallucination` lọc các mẫu câu ảo giác đặc trưng của Whisper (lời cảm ơn, xin subscribe, credit phụ đề, vòng lặp từ trùng lặp >= 75%).
+- Đã thêm `listen_timeout_seconds = 3.5` vào `ContinuousVoiceSession`: khi ở `LISTENING` nếu quá 3.5s không có tiếng nói bắt đầu (`VADState.SILENCE`), phiên tự động huỷ và trở về `STANDBY` kèm chuông Tink, giải quyết triệt để lỗi không tự dừng.
+- Đã thêm kiểm tra năng lượng RMS tối thiểu (< 280) trong `_dispatch_utterance`: bỏ qua các đoạn thu ambient rác không đủ âm lượng giọng nói.
+- Đã nâng `min_speech_rms` lên 300-350 và `energy_threshold` lên 420, đồng thời siết chặt regex wake word thành `\b(?:hey\s+|ê\s+|ơi\s+)?(?:el|eo|en|e)\s*vi[oô]n(?:\s+ơi)?\b|\belvion\b`.
+- **Kiểm chứng thực tế:** 14/14 test đơn vị trong `tests/test_continuous_voice.py` đạt (bao gồm 2 test mới cho hallucination filter và listening timeout); 964 test toàn hệ thống đạt. Trạng thái: đã sửa, chờ kiểm chứng trực tiếp trên micro của người dùng.
+
+
 
