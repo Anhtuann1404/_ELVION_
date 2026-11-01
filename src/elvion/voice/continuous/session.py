@@ -173,6 +173,9 @@ class ContinuousVoiceSession:
                     if hasattr(vi, "transcribe"):
                         res = vi.transcribe(wav_path)
                         transcript = res.text if hasattr(res, "text") else str(res)
+                    elif hasattr(vi, "transcriber") and hasattr(vi.transcriber, "transcribe"):
+                        res = vi.transcriber.transcribe(wav_path)
+                        transcript = res.text if hasattr(res, "text") else str(res)
 
                 if transcript:
                     self._last_processed_transcript = transcript
@@ -180,8 +183,12 @@ class ContinuousVoiceSession:
                         self.on_transcript(transcript)
 
                     # 2. If voice_session has interactive execution, route query
-                    if self.voice_session is not None and hasattr(self.voice_session, "handle_utterance"):
-                        reply_text = self.voice_session.handle_utterance(transcript)
+                    if self.voice_session is not None:
+                        if hasattr(self.voice_session, "conversation_bridge") and self.voice_session.conversation_bridge is not None:
+                            bridge_res = self.voice_session.conversation_bridge.handle(transcript)
+                            reply_text = getattr(bridge_res, "text", "") or ""
+                        elif hasattr(self.voice_session, "handle_utterance"):
+                            reply_text = self.voice_session.handle_utterance(transcript)
 
                 # 3. Speak reply via TTS if output service available
                 if reply_text and self.on_reply is not None:
