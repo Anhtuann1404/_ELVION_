@@ -228,6 +228,14 @@ def run_live_mic(speak_enabled: bool = True) -> None:
                 session.feed_audio(chunk)
     except KeyboardInterrupt:
         print("\n\n🛑 Đã nhận tín hiệu dừng từ người dùng.")
+    except RuntimeError as err:
+        if "MIC_PERMISSION_DENIED" in str(err):
+            print("\n❌ LỖI QUYỀN TRUY CẬP MICROPHONE (MIC_PERMISSION_DENIED):")
+            print("   macOS đã từ chối quyền truy cập Microphone cho tiến trình thu âm.")
+            print("   👉 Vui lòng vào: Cài đặt hệ thống (System Settings) > Quyền riêng tư & Bảo mật (Privacy & Security) > Micrô (Microphone)")
+            print("   👉 Gạt bật quyền cho Terminal / iTerm / IDE mà bạn dùng để chạy lệnh.")
+        else:
+            print(f"\n❌ Lỗi khởi động luồng thu âm micro: {err}")
     finally:
         running = False
         session.stop()

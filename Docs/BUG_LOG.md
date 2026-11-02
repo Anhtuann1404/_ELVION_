@@ -1,5 +1,32 @@
 # Nhật ký lỗi và vướng mắc ELVION
 
+## HANDSFREE-NATIVE-002 — Kiểm 899f212 đạt fixture, native bị chặn quyền mic
+
+- **Ngày/phạm vi:** 02/11/2026, commit `899f212`, runner hands-free từ
+  môi trường agent hiện tại. Không ghi audio hoặc transcript thật.
+- **Kiểm chứng bản sửa HANDSFREE-REVIEW-001:** 20/20 test continuous đạt;
+  toàn suite970 test OK (1 skipped,18,675s).5 fixture kiểm độc lập đạt:
+  deadline/boundary/câu dịch, short-read321+319→640, Qwen context tech và
+  preflight, stop không chờ verifier đang treo, worker cũ không trả lời
+  hoặc đổi state sau stop→start. Các lỗi cũ được sửa trong phạm vi đã đo,
+  chưa coi đây là bằng chứng chất lượng mic/model thật.
+- **Blocker native/bằng chứng:** Runner chọn được Qwen và qua preflight,
+  helper trả `{"event":"error","code":"MIC_PERMISSION_DENIED"}` khi
+  mở mic. Không có audio thật được nhận. Chưa xác minh quyền thiếu ở
+  host nào; không quy lỗi cho model hoặc tự khẳng định mic máy bị hỏng.
+- **Giới hạn phép đo:** Lượt đầu dùng harness cũ kiểm hành vi lỗi và chữ
+  ký hàm cũ nên báo fail/error sau bản sửa; đã cập nhật harness thành
+  kiểm hành vi đúng, mock stream để không mở mic ngoài ca native. Không
+  xem lỗi harness ban đầu là regression production.
+- **Tác động/trạng thái:** Logic các ca cũ đã kiểm đạt; native wake,
+  false wakes, latency và echo vẫn chờ kiểm chứng. Quyền mic là blocker
+  môi trường, chưa giải quyết.
+- **Bước tiếp theo:** Cấp quyền Microphone cho ứng dụng thực sự chạy
+  helper trong macOS Privacy & Security, rồi chạy runner từ Terminal có
+  quyền để thử gọi tên, im lặng3,5s, nói một lượt và follow-up5s. Chưa cần
+  sửa model vì lỗi quyền. Report không chứa dữ liệu cá nhân:
+  `artifacts/benchmarks/handsfree-voice/verify-899f212-20261102.json`.
+
 ## HANDSFREE-REVIEW-001 — Review nhánh hands-free phát hiện khác biệt với hợp đồng vận hành
 
 - **Ngày/phạm vi:** 02/11/2026, HEAD `ce096bd`,
