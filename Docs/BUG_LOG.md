@@ -1,5 +1,97 @@
 # Nhật ký lỗi và vướng mắc ELVION
 
+## HANDSFREE-REVIEW-001 — Review nhánh hands-free phát hiện khác biệt với hợp đồng vận hành
+
+- **Ngày/phạm vi:** 02/11/2026, HEAD `ce096bd`,
+  `scripts/run_handsfree_voice.py`, `voice/continuous/` và
+  `Docs/HANDS_FREE_VOICE.md`. Review trực tiếp source; không mở mic thật.
+- **Bằng chứng ban đầu:** `verify_wake_slice` tạo `slice.wav` trong
+  TemporaryDirectory khi STANDBY dù tài liệu cam kết không ghi byte audio
+  ra đĩa. `feed_audio` giữ lock khi gọi wake verifier, STT, hội thoại và
+  TTS; runner chỉ đọc pipe trên cùng luồng, helper ghi stdout từ audio tap.
+  `_matches_text` dùng substring trước regex có boundary. Runner khởi tạo
+  WhisperTranscriber mặc định thay vì cấu hình voice đã lưu.
+- **Tác động:** Cam kết RAM-only sai; có nguy cơ backlog audio/echo và
+  stop/tick bị chặn khi xử lý chậm; substring có thể đánh thức sai;
+  lựa chọn STT của người dùng có thể bị bỏ qua.
+- **Trạng thái:** Đã sửa logic trong mã nguồn và kiểm chứng qua 17 test
+  continuous, toàn bộ 967 test dự án đạt (1 skipped). Đã sửa, chờ kiểm
+  chứng trên micro và mô hình thật trên macOS.
+- **Bước tiếp theo:** Kiểm chứng tương tác bằng giọng nói thật qua microphone
+  sau khi deploy; tiếp tục theo dõi độ trễ thực tế và tiếng vọng loa.
+
+**Chốt review và giải pháp đã thực hiện 02/11/2026:**
+
+- **P1, deadline/luồng xử lý — ĐÃ SỬA:**
+  + *Nguyên nhân:* `_listen_deadline` được gán trước khi bộ giải mã STT
+    chạy kiểm tra tên (mất 1-5s trên máy), làm thời hạn 3.5s bị trừ lùi và
+    hết hạn ngay frame LISTENING đầu tiên. Ngoài ra `feed_audio` giữ lock
+    khi gọi STT/LLM/TTS làm khóa cứng luồng đọc mic từ runner, gây tích tụ
+    backpressure trong pipe hệ điều hành và chặn hàm `stop()`.
+  + *Giải quyết:* Cập nhật `_listen_deadline = self.clock() + self.listen_timeout_seconds`
+    ngay tại thời điểm chuyển trạng thái sang LISTENING (sau khi verifier và chuông
+    kêu xong). Tách việc dispatch lượt nói (`_dispatch_utterance`) ra ngoài lock,
+    chạy bất đồng bộ qua thread worker (`async_dispatch=True` trong runner). Các
+    frame audio tới trong lúc `PROCESSING` hoặc `SPEAKING` được hấp thu và bỏ qua,
+    không giữ lock; `session.stop()` thu hồi lock tức thì (< 0.1ms). Flush VAD và
+    ring buffer khi vào `FOLLOW_UP` để triệt tiêu acoustic echo từ loa.
+  + *File liên quan:* `src/elvion/voice/continuous/session.py`.
+- **P1, cam kết RAM-only — ĐÃ SỬA (LÀM RÕ TÀI LIỆU):**
+  + *Nguyên nhân:* Bộ giải mã STT ngoài (whisper-cli) bắt buộc truyền đường
+    dẫn file, nên `verify_wake_slice` phải tạo `slice.wav` trong thư mục tạm
+    thời rồi xóa ngay. Tài liệu cam kết "100% RAM-only khi STANDBY" không
+    phản ánh đúng sự tồn tại của tệp tạm thời này.
+  + *Giải quyết:* Sửa tài liệu `Docs/HANDS_FREE_VOICE.md` làm rõ ranh giới:
+    bộ đệm trượt `AudioRingBuffer` hoạt động 100% trong RAM; khi phát hiện
+    năng lượng khả nghi, lát cắt 1.5s được ghi vào thư mục tạm private
+    của hệ điều hành (`0o700`) và bị xóa ngay sau khi verifier trả về.
+    Tuyệt đối không lưu trữ vĩnh viễn và không ghi log âm thanh người dùng.
+- **P2, cấu hình STT & preflight — ĐÃ SỬA:**
+  + *Nguyên nhân:* Runner khởi tạo mặc định `WhisperTranscriber`, không nạp
+    `VoicePreferencesStore`, và in banner cứng "PhoWhisper" dù người dùng
+    chọn Qwen. Runner thông báo mic mở trước khi tiến trình native sẵn sàng.
+  + *Giải quyết:* Runner nạp cấu hình đã lưu qua `VoicePreferencesStore().load()`,
+    khởi tạo đúng transcriber (Whisper/Qwen) và model path tương ứng. Bổ sung
+    bước preflight `transcriber.check_available()` trước khi mở mic. Chỉ in
+    thông báo mic mở sau khi luồng native Swift phát tín hiệu `READY` qua stderr.
+    Xử lý các nhánh route `action_request` và `error` của `ConversationResult`
+    chuẩn xác, không thông báo hoàn thành giả.
+  + *File liên quan:* `scripts/run_handsfree_voice.py`.
+- **P2, framing stream — ĐÃ SỬA:**
+  + *Nguyên nhân:* Hàm đọc pipe stdout đọc các khối dữ liệu tùy ý từ OS;
+    nếu khối đọc ngắn lẻ (ví dụ 321 bytes) đưa trực tiếp vào VAD sẽ ném
+    `ValueError` do lệch kích thước 16-bit mẫu, và làm sai lệch đếm 20ms.
+  + *Giải quyết:* `open_live_audio_stream()` gom các đoạn đọc vào `bytearray`
+    và chỉ yield khi tích lũy đủ chính xác 640 bytes (20ms, 320 mẫu 16-bit).
+    Bổ sung timeout 10s cho bước khởi động helper Swift.
+  + *File liên quan:* `src/elvion/voice/continuous/streamer.py`.
+- **P2, false positive & bộ lọc ảo giác — ĐÃ SỬA:**
+  + *Nguyên nhân:* `_matches_text` kiểm tra substring làm nhận nhầm tên nằm
+    giữa một từ khác (ví dụ "shelvion"). Bộ lọc ảo giác Whisper chặn nhầm
+    cả câu lệnh hợp lệ chứa cụm từ blacklist (ví dụ "Dịch câu hẹn gặp lại...").
+  + *Giải quyết:* Siết chặt boundary `\b` cho toàn bộ các đường nhận diện từ
+    khóa và tách từ độc lập. Neo các mẫu regex của bộ lọc ảo giác vào cấu trúc
+    câu độc lập và bổ sung danh sách tiền tố lệnh (`COMMAND_PREFIXES`) để cho
+    phép câu lệnh dịch, tra cứu, giải thích đi qua an toàn.
+  + *File liên quan:* `src/elvion/voice/continuous/wakeword.py`,
+    `src/elvion/voice/continuous/hallucination.py`.
+- **Đóng gói & tài liệu — ĐÃ SỬA:**
+  + Bổ sung `"elvion.voice.continuous" = ["*.swift"]` vào `package-data`
+    trong `pyproject.toml`.
+  + Cập nhật `Docs/HANDS_FREE_VOICE.md`: loại bỏ các khẳng định chưa đo lường
+    như "<5ms", "tiết kiệm 95% CPU", "lọc triệt để"; phản ánh đúng 17 test
+    continuous và 967 test dự án (1 skipped).
+
+**Kiểm chứng:**
+- 17/17 unit tests trong `tests/test_continuous_voice.py` đạt (0.017s), gồm
+  3 bài kiểm thử hồi quy mới cho các lỗi vừa nêu:
+  + `test_wake_detection_slow_verifier_does_not_expire_listen_deadline`
+  + `test_keyword_boundary_matching_rejects_substrings`
+  + `test_feed_audio_during_processing_and_speaking_absorbs_frames`
+- Toàn bộ suite dự án: 967 test OK (1 skipped, 18.866s).
+- Giới hạn còn lại: Đã sửa trong logic và unit tests hermetic; chờ kiểm chứng
+  trên phần cứng micro thực tế và mô hình thực của người dùng.
+
 Theo yêu cầu chủ dự án ngày 30/10/2026, nhật ký được duy trì xuyên suốt dự án.
 Các mục ban đầu dưới đây được tổng hợp từ bằng chứng của những lượt làm việc
 gần đây; không phải danh sách đầy đủ mọi lỗi từ lúc bắt đầu dự án.
@@ -168,6 +260,14 @@ native read-only và hồi quy toàn dự án đang được kiểm riêng.
   dùng xy, không scroll mù khi chưa thấy tác dụng. Test clipped-row và
   scroll không có hiệu ứng đạt, đang kiểm native sau sửa.
 
+**Kiểm chứng sau sửa 02/11/2026:** Report
+`artifacts/benchmarks/agent-desktop/catalog-play-cli-bcd3882a23ff4c7c851efd42c43d9aae.json`
+ghi cả search/open_artist/play/pause succeeded, verified=true, simulated=false.
+Đã giải quyết trong bố cục native đã đo; driver lấy bounds/ref mới, cuộn
+đúng scrollarea cha, không dùng xy hoặc retry click chưa rõ tác dụng.
+File liên quan: `src/elvion/adapters/music_catalog.py`,
+`tests/test_music_catalog.py`. Bố cục/version khác chưa được đo.
+
 ## CATALOG-NAV-003 — Panel queue mở làm snapshot không trả ô Search trong ca native
 
 - **Ngày/phạm vi:** 02/11/2026, sau khi mở queue để khảo sát metadata.
@@ -184,6 +284,11 @@ native read-only và hồi quy toàn dự án đang được kiểm riêng.
   hoặc tự động hỗ trợ mọi panel. Giữ report lỗi trong mẫu số native.
 - **Bước tiếp theo:** Chạy lại ca mới sau khi quan sát đã có field; không
   tự click/nhập theo tọa độ để bù dữ liệu AX thiếu.
+
+**Kiểm lại setup 02/11/2026:** Ca native cuối sau đóng queue đạt cả4 bước
+(report `catalog-play-cli-bcd3882a23ff4c7c851efd42c43d9aae.json` trong cùng
+thư mục). Workaround có hiệu lực cho ca đã đo; vấn đề partial snapshot
+khi queue mở vẫn chưa giải quyết. Hướng dẫn CLI yêu cầu đóng panel trước thử.
 
 ## CATALOG-PLAY-002 — CLI play timeout trong native smoke dù test fixture đạt
 
@@ -231,6 +336,17 @@ cho sai khác thời lượng đã quan sát, chưa xác minh nguyên nhân làm
 Đây là metadata verification theo ID, không claim JXA trả trực tiếp storeID.
 Giữ toàn bộ report thất bại; đang kiểm native v3 trước khi đóng vấn đề.
 
+**Chốt kiểm chứng v3 02/11/2026:** Report
+`artifacts/benchmarks/agent-desktop/catalog-play-cli-bcd3882a23ff4c7c851efd42c43d9aae.json`
+đạt4/4 action thật với4 xác nhận riêng; play verified dựa trên
+`apple_lookup_metadata_and_native_player`. Pause của CLI tự đạt, không cần
+cleanup pause; player cuối paused, volume không đổi. Lỗi nhận switch và
+verifier dựa row state đã giải quyết trong ca native đã đo. File liên quan:
+`adapters/music_catalog.py`, `core/music_catalog.py`, interface session/
+presentation và `tests/test_music_catalog.py`. 28 test catalog đạt;
+toàn suite chạy950 test, OK (1 skipped). Không suy rộng thành mọi release,
+storefront hoặc bố cục; các lần thất bại phía trên được giữ nguyên.
+
 ## CATALOG-PLAY-001 — Catalog ID không có trực tiếp trong player_state JXA
 
 - **Ngày/phạm vi:** 02/11/2026, chuẩn bị catalog playback. Top Bài Hát
@@ -258,6 +374,16 @@ bộ và tên hiển thị row có thể cập nhật sau load, không dùng pla
 mình hoặc tên cache trước phát làm bằng chứng exact identity. Hướng sửa:
 giữ row catalog ID, đợi row checked cùng player playing/title của row
 mới, chốt receipt persistentID trong RAM rồi verifier đọc lại độc lập.
+
+**Kết luận phạm vi 02/11/2026:** Hướng dựa row checked ở trên đã bị loại
+sau probe CATALOG-PLAY-002. Policy v3 dùng Apple Lookup theo catalog ID,
+đối chiếu title/artist/album/duration với player rồi khóa persistentID ở
+RAM; native4/4 đạt trong report cuối của CATALOG-PLAY-002. Đây là giải pháp
+metadata đã kiểm chứng cho ca đo, không bổ sung storeID trực tiếp vào JXA.
+Giới hạn không phân biệt được hai catalog release có metadata hoàn toàn
+trùng nhau vẫn mở; không tuyên bố định danh storeID tuyệt đối. Bước tiếp:
+chỉ mở rộng kết luận sau kiểm thêm release/storefront hoặc có nguồn ID
+player độc lập; chưa cần thay backend library nhận persistentID16hex.
 
 **AD-PROBE-005 điều tra/sửa 02/11/2026:** Trong cùng môi trường, `press
 return --app Nhạc` báo cơ chế AXConfirm; `--headed press return` sau

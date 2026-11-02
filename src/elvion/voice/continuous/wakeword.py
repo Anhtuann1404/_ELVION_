@@ -107,12 +107,19 @@ class KeywordWakeWordDetector:
     def _matches_text(self, text: str) -> bool:
         norm = text.lower().strip()
         cleaned = re.sub(r"[^\w\s]", " ", norm)
-        tokens = cleaned.split()
-        joined = " ".join(tokens)
+        tokens = set(cleaned.split())
+
         for kw in self.keywords:
-            if kw in joined:
-                return True
-        return bool(_NORMALIZED_KEYWORD_RE.search(joined))
+            kw_parts = kw.lower().split()
+            if len(kw_parts) == 1:
+                if kw_parts[0] in tokens:
+                    return True
+            else:
+                pattern = r"\b" + r"\s+".join(re.escape(p) for p in kw_parts) + r"\b"
+                if re.search(pattern, norm):
+                    return True
+
+        return bool(_NORMALIZED_KEYWORD_RE.search(norm))
 
     def reset(self) -> None:
         self._simulated_matches.clear()

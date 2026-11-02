@@ -4,7 +4,7 @@
 Live Mode (Default):
     Listens to the real microphone in real time.
     Waits for the user to say "ELVION" or "ELVION ơi".
-    Captures live speech using VAD, transcribes with PhoWhisper, thinks with Ollama,
+    Captures live speech using VAD, transcribes with configured STT, thinks with Ollama,
     and replies out loud via macOS TTS (Linh).
 
 Simulation Mode (--simulate):
@@ -25,12 +25,14 @@ from uuid import uuid4
 
 from elvion.conversation.contracts import CapabilityContext
 from elvion.conversation.service import ConversationService
+from elvion.interface.voice_settings import VoicePreferences, VoicePreferencesStore
 from elvion.models.ollama import OllamaProvider
 from elvion.voice.continuous import (
     AudioRingBuffer, ContinuousSessionState, ContinuousVoiceSession,
     KeywordWakeWordDetector, VoiceActivityDetector,
     open_live_audio_stream,
 )
+from elvion.voice.input.types import VoiceInputError
 from elvion.voice.input.whisper import WhisperTranscriber
 
 
@@ -58,17 +60,45 @@ def speak(text: str) -> None:
 
 
 def run_live_mic(speak_enabled: bool = True) -> None:
+    # 1. Load saved voice preferences
+    try:
+        prefs = VoicePreferencesStore().load()
+    except Exception:
+        prefs = VoicePreferences()
+
+    # 2. Select and preflight configured STT engine
+    if prefs.stt_engine == "qwen":
+        from elvion.voice.input.qwen import QwenTranscriber, MODEL_PROFILES
+        model_path = prefs.stt_model or MODEL_PROFILES.get("1.7b", {}).get("directory")
+        transcriber = QwenTranscriber(
+            model_path=model_path,
+            context=prefs.stt_context or "tech",
+            language="vi",
+        )
+        stt_desc = f"Qwen ASR ({Path(model_path).name if model_path else 'default'})"
+    else:
+        transcriber = WhisperTranscriber(
+            model_path=prefs.stt_model,
+            context=prefs.stt_context or "none",
+        )
+        model_name = Path(prefs.stt_model).name if prefs.stt_model else "default"
+        stt_desc = f"Whisper.cpp ({model_name})"
+
+    try:
+        transcriber.check_available()
+    except VoiceInputError as err:
+        print(f"❌ Không thể khởi động STT ({err.code}). Vui lòng kiểm tra lại cấu hình voice.")
+        return
+
     print("=" * 64)
     print("🎙️  ELVION HANDS-FREE VOICE (MICROPHONE THẬT - LIVE MODE)")
     print("=" * 64)
-    print("Hệ thống đang khởi động các module:")
-    print("  - STT Engine: Local PhoWhisper (whisper-cli)")
+    print("Hệ thống khởi tạo từ cấu hình giọng nói:")
+    print(f"  - STT Engine: {stt_desc}")
     print("  - LLM Model:  Local Ollama (qwen3.5:4b)")
     print(f"  - TTS Voice:  macOS Voice Linh ({'BẬT' if speak_enabled else 'TẮT'})")
     print("=" * 64)
 
-    # Initialize components
-    transcriber = WhisperTranscriber()
     ring_buf_verifier = AudioRingBuffer(capacity_seconds=3.0)
 
     try:
@@ -127,7 +157,7 @@ def run_live_mic(speak_enabled: bool = True) -> None:
         if speak_enabled:
             speak(text)
 
-    # Simple session adapter wrapping transcriber and conversation
+    # Session adapter wrapping transcriber and conversation
     class LiveVoiceAdapter:
         def __init__(self):
             self.voice_input = transcriber
@@ -142,8 +172,12 @@ def run_live_mic(speak_enabled: bool = True) -> None:
                         capabilities=CapabilityContext(granted=()),
                         outcome=None,
                     )
-                    return getattr(res, "text", "") or "Dạ, ELVION đã nghe."
-                except Exception as e:
+                    if getattr(res, "route", "") == "action_request":
+                        return f"Dạ, mình nhận diện yêu cầu tác vụ: {getattr(res, 'handoff_utterance', text)}."
+                    if getattr(res, "route", "") == "error":
+                        return f"Hội thoại local gặp lỗi ({getattr(res, 'reason', 'MODEL_ERROR')})."
+                    return getattr(res, "text", "") or "Dạ, mình chưa nghe rõ."
+                except Exception:
                     return f"Dạ, mình ghi nhận: {text}"
             return f"Dạ, mình đã nghe thấy: {text}"
 
@@ -154,18 +188,13 @@ def run_live_mic(speak_enabled: bool = True) -> None:
         vad=vad,
         follow_up_seconds=5.0,
         listen_timeout_seconds=3.5,
+        async_dispatch=True,
         on_state_change=on_state_change,
         on_wake=on_wake,
         on_transcript=on_transcript,
         on_reply=on_reply,
         wake_slice_seconds=1.5,
     )
-    session.start()
-    on_state_change(ContinuousSessionState.STANDBY)
-
-    print("\n🟢 MICROPHONE ĐÃ MỞ VÀ ĐANG LẮNG NGHE THỰC TẾ.", flush=True)
-    print("👉 Hãy nói: \"ELVION ơi\" hoặc \"ELVION\" để đánh thức.", flush=True)
-    print("👉 Nhấn Ctrl+C để dừng chương trình.\n", flush=True)
 
     running = True
 
@@ -183,6 +212,12 @@ def run_live_mic(speak_enabled: bool = True) -> None:
 
     try:
         with open_live_audio_stream(chunk_size=640) as stream:
+            session.start()
+            on_state_change(ContinuousSessionState.STANDBY)
+            print("\n🟢 MICROPHONE ĐÃ MỞ VÀ ĐANG LẮNG NGHE THỰC TẾ.", flush=True)
+            print("👉 Hãy nói: \"ELVION ơi\" hoặc \"ELVION\" để đánh thức.", flush=True)
+            print("👉 Nhấn Ctrl+C để dừng chương trình.\n", flush=True)
+
             for chunk in stream:
                 if not running:
                     break
@@ -192,6 +227,7 @@ def run_live_mic(speak_enabled: bool = True) -> None:
     finally:
         running = False
         session.stop()
+        session.wait_idle(timeout=1.0)
         print("✅ Đã giải phóng microphone và đóng phiên.")
 
 
@@ -201,6 +237,7 @@ def run_simulated_demo() -> None:
     print("================================================================")
     session = ContinuousVoiceSession(
         follow_up_seconds=4.0,
+        async_dispatch=False,
         on_state_change=lambda s: print(f"State -> {s.value}"),
         on_wake=lambda d: print(f"Wake detected: {d.keyword}"),
         on_transcript=lambda t: print(f"Transcript: {t}"),

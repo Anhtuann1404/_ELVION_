@@ -4,17 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elvion"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "Local-first personal agent with Adaptive Interaction Mode Selection"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+
+[project.optional-dependencies]
+browser = ["playwright>=1.48,<2"]
 
 [project.scripts]
 elvion = "elvion.interface.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"elvion.voice.input" = ["*.swift", "*.plist"]
+"elvion.voice.continuous" = ["*.swift"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

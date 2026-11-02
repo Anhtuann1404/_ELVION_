@@ -66,7 +66,10 @@ def is_stream_helper_ready(target_path: Path | None = None) -> bool:
 
 @contextmanager
 def open_live_audio_stream(helper_path: Path | None = None, chunk_size: int = 640):
-    """Yield a generator reading raw 16kHz 16-bit mono PCM chunks from the live microphone."""
+    """Yield a generator reading strictly framed 16kHz 16-bit mono PCM chunks from the live microphone."""
+    import selectors
+    import time
+
     path = helper_path or default_stream_helper_path()
     if not is_stream_helper_ready(path):
         build_stream_helper(path)
@@ -80,18 +83,36 @@ def open_live_audio_stream(helper_path: Path | None = None, chunk_size: int = 64
     )
 
     try:
-        # Wait for stream ready
-        ready_line = process.stderr.readline().decode("utf-8", errors="ignore").strip()
+        # Wait for stream ready with 10.0s timeout
+        deadline = time.monotonic() + 10.0
+        ready_data = b""
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stderr, selectors.EVENT_READ)
+            while b"\n" not in ready_data:
+                rem = deadline - time.monotonic()
+                if rem <= 0 or not selector.select(rem):
+                    raise RuntimeError("Microphone stream startup timeout")
+                chunk = os.read(process.stderr.fileno(), 1024)
+                if not chunk:
+                    break
+                ready_data += chunk
+
+        ready_line = ready_data.decode("utf-8", errors="ignore").strip()
         if "stream_ready" not in ready_line:
             err = ready_line or "Unknown mic error"
             raise RuntimeError(f"Microphone stream failed to initialize: {err}")
 
         def stream_generator():
+            buf = bytearray()
             while process.poll() is None:
                 chunk = process.stdout.read(chunk_size)
                 if not chunk:
                     break
-                yield chunk
+                buf.extend(chunk)
+                while len(buf) >= chunk_size:
+                    frame = bytes(buf[:chunk_size])
+                    del buf[:chunk_size]
+                    yield frame
 
         yield stream_generator()
 

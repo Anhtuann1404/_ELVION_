@@ -368,6 +368,85 @@ class ContinuousVoiceTests(unittest.TestCase):
         self.assertFalse(is_whisper_hallucination("Mở Apple Music"))
         self.assertFalse(is_whisper_hallucination("Thời tiết hôm nay thế nào"))
         self.assertFalse(is_whisper_hallucination("Tạo ghi chú đi chợ"))
+        # Preserves valid prompts containing polite words or translation requests
+        self.assertFalse(is_whisper_hallucination("Dịch câu hẹn gặp lại sang tiếng Anh"))
+        self.assertFalse(is_whisper_hallucination("Cảm ơn bạn vì đã giúp tôi mở bài hát này"))
+        self.assertFalse(is_whisper_hallucination("Nhắc tôi hẹn gặp lại anh Tuấn lúc ba giờ"))
+
+    def test_wake_detection_slow_verifier_does_not_expire_listen_deadline(self):
+        """Slow verifier (e.g. 5s STT) does not cause immediate silence timeout upon entering LISTENING."""
+        simulated_time = [100.0]
+        clock = lambda: simulated_time[0]
+
+        def slow_verifier(pcm_bytes):
+            # Advance clock by 5.0s during transcription
+            simulated_time[0] += 5.0
+            return "elvion"
+
+        wake_detector = KeywordWakeWordDetector(
+            verifier=slow_verifier,
+            clock=clock,
+            energy_threshold=50.0,
+            min_check_interval=0.1,
+        )
+        session = ContinuousVoiceSession(
+            wake_detector=wake_detector,
+            listen_timeout_seconds=3.5,
+            clock=clock,
+        )
+        session.start()
+
+        # Feed 1.5s of speech to pass energy check
+        speech = make_sine_pcm(duration_seconds=1.5, amplitude=5000.0)
+        session.feed_audio(speech)
+
+        # After wake word verifier completes (+5.0s elapsed), session must be in LISTENING
+        self.assertEqual(session.state, ContinuousSessionState.LISTENING)
+
+        # Feed silence frame immediately after wake: deadline was set to current clock + 3.5s,
+        # so it must NOT time out to STANDBY yet!
+        silence_frame = make_silence_pcm(duration_seconds=0.02, amplitude=10.0)
+        simulated_time[0] += 0.02
+        session.feed_audio(silence_frame)
+        self.assertEqual(session.state, ContinuousSessionState.LISTENING)
+
+        # Only after 3.5s of silence has elapsed since waking should it time out
+        simulated_time[0] += 3.6
+        session.feed_audio(silence_frame)
+        self.assertEqual(session.state, ContinuousSessionState.STANDBY)
+
+    def test_keyword_boundary_matching_rejects_substrings(self):
+        """Wake word matcher requires word boundaries and rejects keywords embedded in words."""
+        detector = KeywordWakeWordDetector()
+        # Words containing 'elvion' as a substring must be rejected
+        self.assertFalse(detector._matches_text("shelvion"))
+        self.assertFalse(detector._matches_text("delvion"))
+        self.assertFalse(detector._matches_text("superelvion"))
+        self.assertFalse(detector._matches_text("melvion"))
+
+        # Exact keywords must match
+        self.assertTrue(detector._matches_text("elvion"))
+        self.assertTrue(detector._matches_text("elvion ơi"))
+        self.assertTrue(detector._matches_text("ơi elvion"))
+        self.assertTrue(detector._matches_text("hey elvion"))
+        self.assertTrue(detector._matches_text("ê elvion"))
+        self.assertTrue(detector._matches_text("el vion"))
+
+    def test_feed_audio_during_processing_and_speaking_absorbs_frames(self):
+        """Audio frames fed while in PROCESSING or SPEAKING are absorbed without speech trigger."""
+        session = ContinuousVoiceSession()
+        session.start()
+        session._set_state(ContinuousSessionState.PROCESSING)
+
+        loud_frame = make_sine_pcm(duration_seconds=0.02, amplitude=8000.0)
+        session.feed_audio(loud_frame)
+        # Must remain in PROCESSING
+        self.assertEqual(session.state, ContinuousSessionState.PROCESSING)
+
+        session._set_state(ContinuousSessionState.SPEAKING)
+        session.feed_audio(loud_frame)
+        # Must remain in SPEAKING
+        self.assertEqual(session.state, ContinuousSessionState.SPEAKING)
 
     def test_session_stop_clears_memory_and_resets(self):
         """Stopping session clears memory buffers and resets state cleanly."""

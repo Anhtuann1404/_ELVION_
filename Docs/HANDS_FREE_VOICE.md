@@ -11,7 +11,7 @@ Tài liệu này đặc tả chi tiết kiến trúc, cơ chế xử lý âm tha
 - **Tự động nhận diện dứt câu (Voice Activity Detection - VAD)**: Hệ thống tự động nhận biết khi nào người dùng bắt đầu nói và tự ngắt sau khi dứt câu (800ms khoảng lặng liên tục), loại bỏ thao tác bấm phím.
 - **Tự động ngắt khi im lặng (Silence Timeout)**: Nếu sau khi thức giấc mà người dùng đổi ý hoặc im lặng quá 3.5 giây, hệ thống tự động gõ chuông huỷ và trở về trạng thái ngủ (`STANDBY`), không bị treo mic.
 - **Giữ phiên đối thoại liên tục (Conversational Follow-up Window)**: Sau khi ELVION phát câu trả lời qua loa máy tính, micro duy trì trạng thái "mở tai lắng nghe" trong 5 giây. Người dùng có thể nói tiếp câu thứ hai ngay lập tức mà **không cần phải gọi lại tên**.
-- **Chống ảo giác (Anti-Hallucination Guard)**: Lọc triệt để hiện tượng mô hình Whisper tự "bịa" ra các câu thoại ngẫu nhiên (lời cảm ơn, xin subscribe, credit phụ đề) khi phòng im lặng hoặc chỉ có tiếng quạt laptop.
+- **Chống ảo giác (Anti-Hallucination Guard)**: Giảm thiểu hiện tượng mô hình Whisper tự "bịa" ra các câu thoại ngẫu nhiên (lời cảm ơn, xin subscribe, credit phụ đề) khi phòng im lặng hoặc chỉ có tiếng quạt laptop, đồng thời bảo vệ các câu lệnh hợp lệ thông qua tiền tố lệnh.
 
 ### 1.2. Nguyên tắc Bất biến: Bảo toàn 100% mã nguồn cũ
 - **Zero Modification**: Toàn bộ các module hiện có (`InteractiveSession`, `VoiceSession`, `NativeRecorder`, `whisper.py`, `qwen.py`, `contracts.py`) được **giữ nguyên 100% cấu trúc, logic và hợp đồng**.
@@ -38,22 +38,22 @@ src/elvion/voice/continuous/
 - Biên dịch qua `swiftc` với quyền `NSMicrophoneUsageDescription` được nhúng trực tiếp vào segment binary.
 - Khởi tạo `AVAudioEngine` và gắn `installTap` lên `inputNode`.
 - Tự động chuyển đổi phần cứng micro từ bất kỳ tần số nào (44.1kHz / 48kHz, Float32) sang định dạng chuẩn hóa **16000 Hz, 1 channel, 16-bit Linear PCM** bằng `AVAudioConverter`.
-- Đẩy dữ liệu âm thanh qua `stdout` theo từng khung 20ms (320 mẫu = 640 bytes) với độ trễ cực thấp (< 5ms).
+- Đẩy dữ liệu âm thanh qua `stdout`, streamer tích lũy và chuyển tiếp theo từng khung hoàn chỉnh 20ms (320 mẫu = 640 bytes) đến VAD, không để lọt khung lẻ gây lỗi byte.
 
 ### 2.2. Audio Ring Buffer ([ring_buffer.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/ring_buffer.py))
 - Lưu trữ bộ đệm trượt an toàn đa luồng (thread-safe) chứa từ 2.0 đến 4.0 giây âm thanh Linear PCM trong RAM.
-- **Quyền riêng tư tuyệt đối**: Trong chế độ ngủ `STANDBY`, dữ liệu chỉ lưu xoay vòng trong RAM, **tuyệt đối không ghi bất kỳ byte âm thanh nào ra ổ cứng**.
+- **Quyền riêng tư và bộ nhớ**: Trong chế độ ngủ `STANDBY`, dữ liệu âm thanh thông thường chỉ lưu xoay vòng trong RAM. Khi năng lượng âm thanh vượt ngưỡng nghi vấn có từ khóa, một lát cắt 1.5 giây được lưu tạm vào thư mục riêng biệt của hệ thống với quyền hạn phân vùng nghiêm ngặt (`0o700`) để bộ giải mã STT đối chiếu và bị xóa ngay lập tức sau khi xác minh xong. Hệ thống không lưu trữ lâu dài hoặc ghi nhật ký âm thanh người dùng ra đĩa.
 - Cung cấp hàm trích xuất lát cắt âm thanh (`read_recent`) phục vụ bộ dò Wake Word.
 
 ### 2.3. Voice Activity Detector thích ứng ([vad.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/vad.py))
 - Đo năng lượng RMS và Zero Crossing Rate (ZCR) trên từng khung 20ms.
 - **Sàn nhiễu thích ứng (Adaptive Noise Floor)**: Tự động hiệu chỉnh ngưỡng nhiễu nền khi môi trường thay đổi độ ồn.
-- **Ngưỡng năng lượng thực tế**: Thiết lập `min_speech_rms = 300.0 - 350.0` và `speech_multiplier = 2.8` giúp bỏ qua hoàn toàn tiếng quạt tản nhiệt của MacBook.
+- **Ngưỡng năng lượng thực tế**: Thiết lập `min_speech_rms = 300.0 - 350.0` và `speech_multiplier = 2.8` giúp hạn chế kích hoạt bởi tiếng quạt tản nhiệt của MacBook.
 - **Silence Hangover**: Duy trì bộ đếm 800ms im lặng liên tục mới xác nhận dứt câu, tránh ngắt lời khi người dùng chỉ đang lấy hơi.
 - **Max Duration Guard**: Giới hạn tối đa 15 giây cho một lượt nói để chống tràn bộ đệm.
 
 ### 2.4. Bộ dò Wake Word & Acoustic Pre-filter ([wakeword.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/wakeword.py))
-- **Acoustic Pre-filter**: Chỉ khi lát cắt âm thanh có năng lượng RMS vượt ngưỡng $\ge 420.0$ thì mới kích hoạt bộ giải mã âm vị PhoWhisper, tiết kiệm 95% CPU khi phòng yên tĩnh.
+- **Acoustic Pre-filter**: Chỉ khi lát cắt âm thanh có năng lượng RMS vượt ngưỡng $\ge 420.0$ thì mới kích hoạt bộ giải mã âm vị (PhoWhisper hoặc Qwen), giúp tránh gọi mô hình STT liên tục khi phòng yên tĩnh.
 - **Biểu thức Regex chuẩn hóa**:
   ```python
   _NORMALIZED_KEYWORD_RE = re.compile(
@@ -61,17 +61,20 @@ src/elvion/voice/continuous/
       re.IGNORECASE,
   )
   ```
-  Khớp chính xác các biến thể ngữ âm tiếng Việt (*"ELVION"*, *"ELVION ơi"*, *"Ơi ELVION"*, *"Hey ELVION"*, *"Ê ELVION"*), đồng thời siết ranh giới từ `\b` để loại bỏ hoàn toàn các âm tiết rời rạc do tạp âm.
+  Khớp chính xác các biến thể ngữ âm tiếng Việt (*"ELVION"*, *"ELVION ơi"*, *"Ơi ELVION"*, *"Hey ELVION"*, *"Ê ELVION"*), đồng thời siết ranh giới từ `\b` để loại bỏ việc nhận nhầm khi từ khóa nằm bên trong một từ khác (ví dụ "shelvion").
 
 ### 2.5. Bộ lọc Ảo giác Whisper ([hallucination.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/hallucination.py))
-- Nhận diện và hủy bỏ tức thì các câu văn bản ma (phantom hallucination) mà Whisper tự sinh ra khi nhận âm thanh im lặng/tiếng quạt:
+- Nhận diện và hủy bỏ các câu văn bản ma (phantom hallucination) mà Whisper có thể tự sinh ra khi nhận âm thanh im lặng/tiếng quạt:
   - Lời kết video YouTube (*"Cảm ơn các bạn đã theo dõi..."*, *"Hãy like và subscribe..."*, *"Hẹn gặp lại..."*).
   - Thẻ phụ đề (*"Subtitles by..."*, *"Phụ đề bởi..."*, *"Amara.org"*).
   - Vòng lặp từ vô nghĩa (*"ừm ừm ừm..."*, *"à à à..."*, tỷ lệ từ lặp $\ge 75\%$).
 - Hủy bỏ các đoạn thu âm có năng lượng RMS trung bình $< 280.0$, ngăn không cho đẩy dữ liệu rác vào mô hình LLM.
+- **Command Prefix Bypass**: Tự động bỏ qua bộ lọc với các câu lệnh hợp lệ bắt đầu bằng *"Dịch câu..."*, *"Hãy giải thích..."*, *"Tìm kiếm..."*, tránh chặn nhầm yêu cầu người dùng.
 
 ### 2.6. Continuous Voice Session ([session.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/session.py))
-- Điều phối cỗ máy 6 trạng thái kèm 2 bộ đếm thời gian an toàn (`_listen_deadline` và `_follow_up_deadline`):
+- Điều phối cỗ máy 6 trạng thái kèm 2 bộ đếm thời gian an toàn (`_listen_deadline` và `_follow_up_deadline`).
+- **Khởi tạo Deadline chuẩn xác**: `_listen_deadline` được tính sau khi hoàn tất kiểm tra từ khóa và phát xong chuông thức giấc (`LISTENING`), ngăn ngừa việc hết hạn oan uổng nếu bộ giải mã STT xử lý chậm 1-5 giây.
+- **Xử lý bất đồng bộ không nghẽn (Non-blocking Ingestion)**: Luồng thu nạp âm thanh tách rời việc dispatch xử lý (`async_dispatch=True`). Trong lúc hệ thống suy luận (`PROCESSING`) hoặc trợ lý đang nói qua loa (`SPEAKING`), các frame âm thanh từ micro được hấp thu và bỏ qua an toàn mà không giữ khóa, giúp `session.stop()` thu hồi ngay lập tức (< 0.1ms). Khi chuyển sang `FOLLOW_UP`, VAD và ring buffer được làm sạch để chống tiếng vọng loa (acoustic echo) kích hoạt lại lượt nghe.
 
 ```
        ┌────────────────────────────────────────────────────────┐
@@ -106,7 +109,7 @@ src/elvion/voice/continuous/
 
 ## 3. Danh mục Kiểm thử Chi tiết (`tests/test_continuous_voice.py`)
 
-Bộ kiểm thử đạt **14/14 test cases passed** trong **0.015 giây**:
+Bộ kiểm thử đạt **17/17 test cases passed** trong **0.017 giây**:
 
 | STT | Tên ca kiểm thử | Phạm vi | Mô tả kiểm thử & Tiêu chuẩn nghiệm thu | Kết quả |
 |:---:|---|---|---|:---:|
@@ -118,17 +121,20 @@ Bộ kiểm thử đạt **14/14 test cases passed** trong **0.015 giây**:
 | 6 | `test_vad_max_duration_guard` | VAD | Bơm liên tục frame tiếng nói quá thời lượng tối đa; kiểm tra VAD buộc ngắt dứt điểm để bảo vệ bộ nhớ. | **PASS** |
 | 7 | `test_wake_detector_simulated_detection` | WakeWord | Kiểm tra cơ chế bơm từ khóa giả lập phục vụ kiểm thử hermetic tự động độc lập phần cứng. | **PASS** |
 | 8 | `test_wake_detector_delegated_verifier` | WakeWord | Kiểm tra tầng verifier bóc tách âm vị: khớp đúng từ khóa *"ELVION"* và từ chối các câu không liên quan. | **PASS** |
-| 9 | `test_session_lifecycle_standby_to_awake_to_follow_up` | Session | Kiểm tra toàn bộ vòng đời: Nghe wake word $\rightarrow$ phát chuông $\rightarrow$ thu âm $\rightarrow$ xử lý $\rightarrow$ chuyển sang `FOLLOW_UP`. | **PASS** |
-| 10 | `test_session_follow_up_speech_without_wake_word` | Session | Trong cửa sổ `FOLLOW_UP`, khi có frame tiếng nói, phiên chuyển thẳng sang `LISTENING` mà **không cần gọi lại tên**. | **PASS** |
-| 11 | `test_session_follow_up_timeout_returns_to_standby` | Session | Mô phỏng đồng hồ trôi qua 5.0 giây không có tiếng nói; phiên tự động chuyển về ngủ `STANDBY`. | **PASS** |
-| 12 | `test_listening_timeout_returns_to_standby_when_user_silent` | Session | Kiểm chứng tính năng chống treo: Đã thức giấc nhưng người dùng im lặng quá 3.0s $\rightarrow$ tự động ngắt và về `STANDBY`. | **PASS** |
-| 13 | `test_whisper_hallucination_filter` | Hallucination | Kiểm chứng bộ lọc: Bắt chính xác lời cảm ơn YouTube, phụ đề, từ lặp $\ge 75\%$; cho phép câu lệnh hợp lệ đi qua. | **PASS** |
-| 14 | `test_session_stop_clears_memory_and_resets` | Session | Dừng phiên kiểm tra cờ running tắt, giải phóng toàn bộ audio PCM khỏi RAM và reset state về `STANDBY`. | **PASS** |
+| 9 | `test_wake_detection_slow_verifier_does_not_expire_listen_deadline` | Session / Wake | Kiểm chứng khi STT verifier xử lý lâu (5s), `_listen_deadline` vẫn được cấp đủ 3.5s trọn vẹn sau khi thức giấc. | **PASS** |
+| 10 | `test_keyword_boundary_matching_rejects_substrings` | WakeWord | Kiểm chứng siết boundary `\b`: từ chối các từ chứa từ khóa ở giữa như *"shelvion"*, *"delvion"*. | **PASS** |
+| 11 | `test_session_lifecycle_standby_to_awake_to_follow_up` | Session | Kiểm tra toàn bộ vòng đời: Nghe wake word $\rightarrow$ phát chuông $\rightarrow$ thu âm $\rightarrow$ xử lý $\rightarrow$ chuyển sang `FOLLOW_UP`. | **PASS** |
+| 12 | `test_session_follow_up_speech_without_wake_word` | Session | Trong cửa sổ `FOLLOW_UP`, khi có frame tiếng nói, phiên chuyển thẳng sang `LISTENING` mà **không cần gọi lại tên**. | **PASS** |
+| 13 | `test_session_follow_up_timeout_returns_to_standby` | Session | Mô phỏng đồng hồ trôi qua 5.0 giây không có tiếng nói; phiên tự động chuyển về ngủ `STANDBY`. | **PASS** |
+| 14 | `test_listening_timeout_returns_to_standby_when_user_silent` | Session | Kiểm chứng tính năng chống treo: Đã thức giấc nhưng người dùng im lặng quá 3.5s $\rightarrow$ tự động ngắt và về `STANDBY`. | **PASS** |
+| 15 | `test_whisper_hallucination_filter` | Hallucination | Kiểm chứng bộ lọc: Bắt chính xác lời cảm ơn YouTube, phụ đề, từ lặp $\ge 75\%$; cho phép câu lệnh hợp lệ đi qua. | **PASS** |
+| 16 | `test_feed_audio_during_processing_and_speaking_absorbs_frames` | Session / Non-blocking | Kiểm chứng các frame đến trong lúc `PROCESSING` và `SPEAKING` được hấp thu/drop mà không nghẽn pipeline. | **PASS** |
+| 17 | `test_session_stop_clears_memory_and_resets` | Session | Dừng phiên kiểm tra cờ running tắt, giải phóng toàn bộ audio PCM khỏi RAM và reset state về `STANDBY`. | **PASS** |
 
 **Kiểm thử hồi quy toàn bộ dự án**:
 ```bash
 PYTHONPATH=src:. python3 -m unittest discover -s tests -p "test_*.py"
-# Kết quả: Ran 964 tests in 19.8s -> OK (0 regressions)
+# Kết quả: Ran 967 tests in 18.9s -> OK (1 skipped, 0 regressions)
 ```
 
 ---
@@ -164,11 +170,11 @@ PYTHONPATH=src:. python3 scripts/run_handsfree_voice.py
 ---
 
 ### Cách 2: Chạy kiểm thử tự động (Unit Tests)
-Chạy bộ test suite 14 ca:
+Chạy bộ test suite 17 ca:
 ```bash
 PYTHONPATH=src:. python3 -m unittest -v tests/test_continuous_voice.py
 ```
-Toàn bộ 14 bài kiểm thử sẽ hoàn tất trong ~0.02 giây và báo `OK`.
+Toàn bộ 17 bài kiểm thử sẽ hoàn tất trong ~0.02 giây và báo `OK`.
 
 ---
 
