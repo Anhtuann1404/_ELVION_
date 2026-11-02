@@ -14,6 +14,7 @@ Usage:
     PYTHONPATH=src:. python3 scripts/run_handsfree_voice.py [--simulate] [--no-speak]
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -59,7 +60,7 @@ def speak(text: str) -> None:
         )
 
 
-def run_live_mic(speak_enabled: bool = True) -> None:
+def run_live_mic(speak_enabled: bool = True, debug_wake: bool = False) -> None:
     # 1. Load saved voice preferences
     try:
         prefs = VoicePreferencesStore().load()
@@ -116,21 +117,37 @@ def run_live_mic(speak_enabled: bool = True) -> None:
 
     def verify_wake_slice(pcm_slice: bytes) -> str:
         """Transcribe recent 1.5s slice when acoustic energy rises in STANDBY."""
-        try:
-            with tempfile.TemporaryDirectory(prefix="elvion-wake-") as tmp_dir:
-                wav_path = Path(tmp_dir) / "slice.wav"
-                ring_buf_verifier.clear()
-                ring_buf_verifier.write(pcm_slice)
-                ring_buf_verifier.save_to_wav(wav_path, pcm_bytes=pcm_slice)
-                res = transcriber.transcribe(wav_path)
-                return getattr(res, "text", "") or ""
-        except Exception:
-            return ""
+        with tempfile.TemporaryDirectory(prefix="elvion-wake-") as tmp_dir:
+            wav_path = Path(tmp_dir) / "slice.wav"
+            ring_buf_verifier.clear()
+            ring_buf_verifier.write(pcm_slice)
+            ring_buf_verifier.save_to_wav(wav_path, pcm_bytes=pcm_slice)
+            res = transcriber.transcribe(wav_path)
+            text = getattr(res, "text", "") or ""
+            if text and not debug_wake:
+                clean_text = text.replace("\n", " ").strip()
+                print(f"\r👂 [Mic nhận dạng]: \"{clean_text}\"", end="", flush=True)
+            return text
+
+    last_quiet_diagnostic = 0.0
+
+    def wake_diagnostic(event: dict) -> None:
+        nonlocal last_quiet_diagnostic
+        if event["reason"] == "below_energy":
+            now = time.monotonic()
+            if now - last_quiet_diagnostic < 1.0:
+                return
+            last_quiet_diagnostic = now
+        print("[wake] " + json.dumps(event, ensure_ascii=False), flush=True)
+
+    if debug_wake:
+        print("[wake] Chẩn đoán chỉ hiện tại terminal, có thể chứa lời nhận dạng từ mic; không ghi file log.", flush=True)
 
     wake_detector = KeywordWakeWordDetector(
         verifier=verify_wake_slice,
-        energy_threshold=420.0,
-        min_check_interval=0.5,
+        energy_threshold=140.0,
+        min_check_interval=0.4,
+        on_diagnostic=wake_diagnostic if debug_wake else None,
     )
     vad = VoiceActivityDetector(
         min_speech_rms=350.0,
@@ -280,12 +297,14 @@ def main() -> int:
         action="store_true",
         help="Tắt đọc phát âm thanh qua loa (chỉ in văn bản)",
     )
+    parser.add_argument("--debug-wake", action="store_true",
+                        help="Hiện mức mic, lỗi STT và chữ nhận dạng tại terminal; không lưu log")
     args = parser.parse_args()
 
     if args.simulate:
         run_simulated_demo()
     else:
-        run_live_mic(speak_enabled=not args.no_speak)
+        run_live_mic(speak_enabled=not args.no_speak, debug_wake=args.debug_wake)
     return 0
 
 

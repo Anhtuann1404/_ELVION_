@@ -41,6 +41,61 @@ def make_silence_pcm(duration_seconds: float = 0.1, amplitude: float = 10.0) -> 
 
 class ContinuousVoiceTests(unittest.TestCase):
 
+    def test_runner_exposes_wake_error_without_changing_saved_context(self):
+        import contextlib
+        import importlib.util
+        import io
+        from elvion.interface.voice_settings import VoicePreferences
+        from elvion.voice.input.types import VoiceInputError
+        spec = importlib.util.spec_from_file_location("handsfree_test_runner", "scripts/run_handsfree_voice.py")
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        stt = Mock()
+        stt.transcribe.return_value.text = "ELVION ơi"
+
+        @contextlib.contextmanager
+        def fake_stream(**kwargs):
+            yield iter(())
+
+        with patch.object(runner, "VoicePreferencesStore") as store, \
+             patch("elvion.voice.input.qwen.QwenTranscriber", return_value=stt) as factory, \
+             patch.object(runner, "ContinuousVoiceSession") as session, \
+             patch.object(runner, "open_live_audio_stream", fake_stream), \
+             patch.object(runner, "ConversationService"), \
+             patch.object(runner.threading, "Thread"), contextlib.redirect_stdout(io.StringIO()):
+            store.return_value.load.return_value = VoicePreferences(stt_engine="qwen", stt_context="none")
+            runner.run_live_mic(False, debug_wake=True)
+            factory.assert_called_once()
+            self.assertEqual(factory.call_args.kwargs["context"], "none")
+            detector = session.call_args.kwargs["wake_detector"]
+            self.assertTrue(detector.detect(make_sine_pcm(duration_seconds=0.5)).detected)
+            stt.transcribe.side_effect = VoiceInputError("STT_FAILED")
+            with self.assertRaises(VoiceInputError):
+                detector.verifier(make_sine_pcm(duration_seconds=0.5))
+
+    def test_wake_diagnostics_distinguish_energy_mismatch_and_stt_error(self):
+        from elvion.voice.input.types import VoiceInputError
+        events = []
+        verifier = Mock(return_value="e leon ơi")
+        detector = KeywordWakeWordDetector(verifier=verifier, min_check_interval=0,
+                                           on_diagnostic=events.append)
+        detector.detect(make_silence_pcm(duration_seconds=0.5))
+        self.assertEqual(events[-1]["reason"], "below_energy")
+        verifier.assert_not_called()
+        self.assertFalse(detector.detect(make_sine_pcm(duration_seconds=0.5)).detected)
+        self.assertEqual(events[-1]["reason"], "keyword_mismatch")
+        verifier.side_effect = VoiceInputError("STT_FAILED")
+        detector.detect(make_sine_pcm(duration_seconds=0.5))
+        self.assertEqual(events[-1], {"reason": "stt_error", "code": "STT_FAILED"})
+
+    def test_wake_waits_for_audio_minimum_and_diagnostics_are_opt_in(self):
+        verifier = Mock(return_value="elvion")
+        detector = KeywordWakeWordDetector(verifier=verifier, min_check_interval=0)
+        self.assertFalse(detector.detect(make_sine_pcm(duration_seconds=0.1)).detected)
+        verifier.assert_not_called()
+        self.assertTrue(detector.detect(make_sine_pcm(duration_seconds=0.25)).detected)
+        self.assertIsNone(detector.on_diagnostic)
+
     # =========================================================================
     # Group 1: AudioRingBuffer Tests
     # =========================================================================

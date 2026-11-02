@@ -8,9 +8,13 @@ from typing import Callable, Protocol, runtime_checkable
 
 from elvion.voice.continuous.hallucination import is_whisper_hallucination
 
-WAKE_KEYWORDS = ("elvion", "hey elvion", "ê elvion", "ơi elvion", "elvion ơi")
+WAKE_KEYWORDS = (
+    "elvion", "hey elvion", "ê elvion", "ơi elvion", "elvion ơi",
+)
 _NORMALIZED_KEYWORD_RE = re.compile(
-    r"\b(?:hey\s+|ê\s+|ơi\s+)?(?:el|eo|en|e)\s*vi[oô]n(?:\s+ơi)?\b|\belvion\b",
+    r"\b(?:hey\s+|hi\s+|ê\s+|ơi\s+|ôi\s+)?"
+    r"(?:el|eo|en|e|ê)\s*vi\s*[oô]n(?:\s+ơi)?\b"
+    r"|\belvion\b",
     re.IGNORECASE,
 )
 
@@ -23,6 +27,24 @@ def calculate_pcm_rms(audio_bytes: bytes) -> float:
     samples = struct.unpack(f"<{count}h", audio_bytes[: count * 2])
     sum_squares = sum(s * s for s in samples)
     return math.sqrt(sum_squares / count)
+
+
+def calculate_subframe_peak_rms(audio_bytes: bytes, window_samples: int = 1600, hop_samples: int = 800) -> float:
+    """Calculate the maximum RMS across sliding sub-windows (100ms window, 50ms hop)."""
+    if not audio_bytes or len(audio_bytes) < 4:
+        return 0.0
+    window_bytes = window_samples * 2
+    hop_bytes = hop_samples * 2
+    if len(audio_bytes) <= window_bytes:
+        return calculate_pcm_rms(audio_bytes)
+
+    max_rms = 0.0
+    for i in range(0, len(audio_bytes) - window_bytes + 1, hop_bytes):
+        chunk = audio_bytes[i : i + window_bytes]
+        r = calculate_pcm_rms(chunk)
+        if r > max_rms:
+            max_rms = r
+    return max_rms
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -53,7 +75,8 @@ class KeywordWakeWordDetector:
         verifier: Callable[[bytes], str] | None = None,
         clock: Callable[[], float] = time.monotonic,
         min_check_interval: float = 0.4,
-        energy_threshold: float = 300.0,
+        energy_threshold: float = 140.0,
+        on_diagnostic: Callable[[dict], None] | None = None,
     ):
         self.keywords = keywords
         self.threshold = threshold
@@ -61,6 +84,7 @@ class KeywordWakeWordDetector:
         self.clock = clock
         self.min_check_interval = float(min_check_interval)
         self.energy_threshold = float(energy_threshold)
+        self.on_diagnostic = on_diagnostic
         self._last_check_time = 0.0
         self._simulated_matches: list[WakeWordResult] = []
 
@@ -77,32 +101,52 @@ class KeywordWakeWordDetector:
             return self._simulated_matches.pop(0)
 
         now = self.clock()
-        if not audio_bytes or len(audio_bytes) < 3200:  # Need at least 100ms
+        if not audio_bytes or len(audio_bytes) < 8000:  # STT requires at least 250ms
             return WakeWordResult(detected=False, timestamp=now)
 
         # 2. If a micro-verifier (e.g. PhoWhisper slice) is attached, run fast transcript check
         if self.verifier is not None:
             if now - self._last_check_time < self.min_check_interval:
                 return WakeWordResult(detected=False, timestamp=now)
-            rms = calculate_pcm_rms(audio_bytes)
-            if rms < self.energy_threshold:
+
+            # Evaluate both peak sub-window and average RMS so speech bursts are not lost in silence
+            peak_rms = calculate_subframe_peak_rms(audio_bytes)
+            avg_rms = calculate_pcm_rms(audio_bytes)
+            effective_rms = max(peak_rms, avg_rms)
+            if effective_rms < self.energy_threshold:
+                self._diagnostic(reason="below_energy", rms=round(effective_rms))
                 return WakeWordResult(detected=False, timestamp=now)
 
             self._last_check_time = now
+            started = time.monotonic()
+            self._diagnostic(reason="transcribing", rms=round(effective_rms))
             try:
                 transcript = self.verifier(audio_bytes).strip().lower()
-                if transcript and not is_whisper_hallucination(transcript) and self._matches_text(transcript):
+                matched = bool(transcript and not is_whisper_hallucination(transcript) and self._matches_text(transcript))
+                self._diagnostic(reason="matched" if matched else "keyword_mismatch",
+                                 rms=round(effective_rms), text=transcript[:2048],
+                                 inference_ms=round((time.monotonic() - started) * 1000))
+                if matched:
                     return WakeWordResult(
                         detected=True,
                         keyword="elvion",
                         confidence=0.92,
                         timestamp=now,
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                from elvion.voice.input.types import VoiceInputError
+                self._diagnostic(reason="stt_error", code=exc.code if isinstance(exc, VoiceInputError) else "WAKE_VERIFIER_FAILED")
 
         # Default non-detection
         return WakeWordResult(detected=False, timestamp=now)
+
+    def _diagnostic(self, **event) -> None:
+        # Opt-in terminal callback only; no ambient transcript retained or logged.
+        if self.on_diagnostic is not None:
+            try:
+                self.on_diagnostic(event)
+            except Exception:
+                pass
 
     def _matches_text(self, text: str) -> bool:
         norm = text.lower().strip()

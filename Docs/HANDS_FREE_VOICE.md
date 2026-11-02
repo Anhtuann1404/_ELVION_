@@ -1,5 +1,39 @@
 # Báo Cáo Kỹ Thuật: Trải Nghiệm Giọng Nói Rảnh Tay (Hands-free Continuous Voice)
 
+## Kiểm tra khi gọi tên nhưng vẫn STANDBY — cập nhật 02/11/2026
+
+Thoát phiên cũ bằng Ctrl+C và mở lại từ code mới:
+
+```sh
+cd /Users/yingjunn_/Study_/ELVION
+PYTHONPATH=src:. python3 scripts/run_handsfree_voice.py --debug-wake
+```
+
+Đợi dòng mic đã mở và STANDBY, nói “Elvion ơi”, chờ chuông và LISTENING
+rồi mới nói câu hỏi, ví dụ “Chào cậu”. Trong lúc model giải mã sẽ hiện
+`[wake]` với các trạng thái:
+
+- `below_energy`: mức RMS lát cắt chưa đạt420; thử lại gần mic hơn hoặc
+  kiểm mic đầu vào trong macOS. Không tự hạ threshold vì có thể tăng gọi nhầm.
+- `transcribing`: đã có tín hiệu đủ lớn và đang chạy STT; chờ kết quả.
+- `keyword_mismatch`: xem trường `text` để biết model nhận tên thành gì.
+- `stt_error`: lỗi STT; trường `code` giúp phân biệt lỗi thay vì im lặng.
+- `matched`: đã khớp tên, phải chuyển AWAKE/LISTENING sau chuông.
+
+`--debug-wake` chỉ in tại terminal, **có thể hiển thị lời nhận dạng từ mic**;
+không ghi file log/trace. Không chuyển hướng output vào tệp nếu không muốn
+lưu nội dung đó. Chạy không có flag để tắt diagnostics. Ctrl+C đóng mic.
+
+Đo local bằng câu tổng hợp công khai: Qwen0.6B/none/vi nhận “Elvion ơi”
+thành “E Leon ơi” và không khớp. Cùng audio với tech/assistant-v1 nhận
+“ELVION ơi” và khớp, nhưng trên âm đơn không có tiếng người model lặp lại
+vocabulary chứa ELVION và gây wake giả. Qwen1.7B cũng có prompt echo trong
+ca này. **Không bật hint đó trong runner**; giữ model/context hiện tại để
+chẩn đoán giọng thật trước khi chọn giải pháp. Không thêm E Leon/Avon vào
+alias vì chưa kiểm tỷ lệ gọi nhầm. Đây là bằng chứng trên audio tổng hợp,
+chưa chứng minh giọng người dùng đã đạt. File WAV
+tạm vẫn được dùng theo hợp đồng bên dưới; không giữ lịch sử nghe.
+
 Tài liệu này đặc tả chi tiết kiến trúc, cơ chế xử lý âm thanh thời gian thực, cỗ máy trạng thái, giải pháp phòng chống ảo giác (anti-hallucination), bộ kiểm thử 20 ca và hướng dẫn vận hành tính năng **Hội thoại Rảnh tay (Hands-free Voice Session)** cho trợ lý ELVION trên macOS.
 
 ---

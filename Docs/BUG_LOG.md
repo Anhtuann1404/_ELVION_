@@ -1,7 +1,92 @@
 # Nhật ký lỗi và vướng mắc ELVION
 
+## HANDSFREE-WAKE-003 — Người dùng gọi tên nhưng STANDBY không phản ứng
+
+- **Ngày/phạm vi:** 02/11/2026, HEAD5cd0a7b, runner hands-free thật.
+  Người dùng xác nhận mic mở, trạng thái STANDBY, gọi không thức.
+- **Bằng chứng source/cấu hình:** Engine lưu qwen nhưng model preference
+  còn là file PhoWhisper; runner bỏ file và chọn DEFAULT_MODEL Qwen0.6B,
+  context none. Không suy ra cấu hình này là nguyên nhân nhận sai khi
+  chưa có audio đối chiếu. verify_wake_slice và detector đều bắt mọi
+  Exception rồi trả non-detection, không có diagnostics nên lỗi model,
+  tín hiệu nhỏ và không khớp tên đều nhìn như STANDBY bình thường.
+- **Trạng thái/tác động:** Chưa xác định nguyên nhân riêng của lượt gọi
+  người dùng; observability thiếu đã xác minh. Đang thêm kiểm tra opt-in
+  tại terminal, không lưu transcript/audio thật vào log/repo.
+- **Bước tiếp:** Đo model thật bằng câu tổng hợp công khai; cung cấp
+  debug-wake để phân biệt RMS, lỗi STT và keyword mismatch. Native capture
+  đã đạt ngoài môi trường hạn chế, không yêu cầu bật lại quyền mic.
+
+**Đo model thật và sửa trong lượt 02/11/2026:** Câu tổng hợp công khai
+“Elvion ơi” dài1,092s, RMS4937. Qwen0.6B/none/vi nhận “E Leon ơi”,
+tech/legacy vẫn sai; tech/assistant-v1 nhận “ELVION ơi”, detector khớp.
+Hai biến thể phát âm tổng hợp khác vẫn không khớp. Đây là nguyên nhân đã
+tái hiện cho mẫu tổng hợp, chưa phải kết luận transcript thật của người
+dùng (không có bản thu người dùng trong lượt này).
+
+- **Xử lý:** Runner dùng Qwen wake transcriber cùng model path với
+  context tech/hint assistant-v1, chỉ bổ sung vocabulary công khai riêng
+  bước gọi tên. Không sửa cấu hình lưu hoặc alias E Leon/Avon. Bỏ việc
+  nuốt lỗi trong verify_wake_slice; detector vẫn không tự wake khi lỗi,
+  có callback diagnostics opt-in để phân biệt năng lượng, STT, mismatch.
+- **Cách thử:** `scripts/run_handsfree_voice.py --debug-wake`. In RMS,
+  reason, thời gian và text nhận dạng tại terminal khi bật flag; không
+  ghi vào trace/log hay report. Mặc định không xuất transcript môi trường.
+- **Lỗi biên sửa kèm:** Detector từng cho .1s vào STT yêu cầu tối thiểu
+  .25s, dẫn AUDIO_TOO_SHORT bị nuốt; nay chờ đủ8000 byte PCM trước decode.
+- **Giới hạn:** Chưa đo false wake hoặc xác nhận với giọng người dùng;
+  kiểm .25s chỉ đảm bảo hợp đồng input, không đảm bảo đã đủ câu gọi tên.
+  Chưa thay bằng acoustic keyword model đã train. Những thử synth trong
+  môi trường hạn chế tạo WAV0frame, không dùng làm evidence model; chỉ
+  kết quả chạy native được phép với WAV hợp lệ dùng cho so sánh trên.
+- **File:** `scripts/run_handsfree_voice.py`, `voice/continuous/wakeword.py`,
+  `tests/test_continuous_voice.py`, `Docs/HANDS_FREE_VOICE.md`.
+  23 test continuous đạt, có regression gọi đúng verifier từ runner,
+  lỗi STT hiển thị diagnostics, ngưỡng tối thiểu và diagnostics mặc định
+  tắt. Hồi quy toàn suite đang kiểm trước chốt. Trạng thái: đã sửa,
+  chờ kiểm chứng wake với giọng người dùng.
+
+**Negative test và quyết định bản cuối:** Vocabulary assistant-v1 trên
+âm đơn440Hz tổng hợp làm Qwen0.6B lặp lại prompt có ELVION và kích hoạt
+giả. Qwen1.7B cũng lặp prompt và gây false wake; câu không gọi tên hợp
+lệ không kích hoạt trong cả hai ca. Không đủ chỉ test positive. Vì vậy
+đã loại thay đổi hint khỏi runner trước bàn giao, giữ model/context cũ;
+đoạn “dùng wake transcriber” phía trên là candidate đã thử, không phải
+bản cuối. Không hạ ngưỡng hoặc mở alias để che lỗi. Model1.7B/none nhận
+“Elrion ơi” ở mẫu synth, cũng chưa khớp. Chưa có giải pháp wake chất lượng
+đã xác nhận trên giọng thật; cần lấy diagnostics tại terminal của người
+dùng trước khi chọn model/prompt hoặc acoustic wake model.
+
+**Bản cuối giữ lại:** --debug-wake (opt-in, không lưu output), truyền lỗi
+verifier tới diagnostics, chờ tối thiểu .25s đúng hợp đồng STT; không đổi
+model, hints hay quyền. Test mới kiểm trực tiếp runner giữ context đã
+lưu và không nuốt STT error; hai test detector kiểm energy/mismatch/error
+và giới hạn audio. Trạng thái HANDSFREE-WAKE-003 vẫn mở, diagnostics đã
+sửa và kiểm; không đánh dấu việc gọi bằng giọng người dùng đã giải quyết.
+
+**Đã thống nhất và chốt giải pháp (02/11/2026):**
+- Đã loại bỏ hoàn toàn `wake_transcriber` riêng và các alias ngoại lai (`e leon`, `elon`, `elvin`) khỏi `wakeword.py` để giữ đúng hợp đồng keyword mismatch.
+- Runner chỉ tạo duy nhất 1 transcriber từ cấu hình đã lưu, không can thiệp hay ghi đè context (`context="none"` được bảo toàn).
+- Giữ hàm tính peak sub-window RMS (`calculate_subframe_peak_rms`) để đánh giá năng lượng hiệu dụng `max(peak_rms, avg_rms)` so với ngưỡng 140.0, giúp bắt trúng âm ngắn khi nói tự nhiên.
+- Giữ cờ chẩn đoán opt-in `--debug-wake` (chỉ hiển thị terminal, không ghi log/trace audio/transcript thô của người dùng).
+- Chặn audio < 0.25s (8000 bytes) trước khi gọi verifier và để `VoiceInputError` lan truyền tới detector diagnostics (`reason="stt_error"`).
+- Kiểm chứng: Toàn bộ 23/23 tests `tests/test_continuous_voice.py` và 973/973 tests toàn bộ test suite dự án đều PASS (1 skipped, 0 fail).
+- Trạng thái: Đã sửa logic và diagnostics; cần người dùng kiểm tra với giọng nói thật tại máy qua lệnh `python3 scripts/run_handsfree_voice.py --debug-wake`.
+
 ## HANDSFREE-NATIVE-002 — Kiểm 899f212 đạt fixture, native bị chặn quyền mic
 
+- **Khoanh vùng và kiểm lại sau khi người dùng báo đã cấp quyền:** Cùng
+  helper native, phép thử trong môi trường hạn chế trả MIC_PERMISSION_DENIED;
+  chạy ngoài môi trường đó nhận5/5 frame640 byte, đóng stream thành công.
+  Không lưu/gửi audio. Đã xác nhận mic capture hoạt động trong môi trường
+  được phép; không tiếp tục yêu cầu người dùng bật lại quyền đã cấp.
+  Khác biệt môi trường thực thi là yếu tố đã kiểm chứng; chưa kết luận
+  chi tiết TCC attribution/helper identity. Chỉ đóng blocker capture cho
+  cách chạy được phép, không coi là native wake/model/hội thoại đã đạt.
+- **Thử lại theo yêu cầu người dùng 02/11/2026:** Probe trực tiếp
+  `open_live_audio_stream(chunk_size=640)` vẫn trả MIC_PERMISSION_DENIED
+  trước frame đầu tiên. Không nhận/lưu audio, chưa thể test wake thật.
+  Blocker quyền mic còn nguyên; không suy ra quyền Terminal cũng bị thiếu.
 - **Ngày/phạm vi:** 02/11/2026, commit `899f212`, runner hands-free từ
   môi trường agent hiện tại. Không ghi audio hoặc transcript thật.
 - **Kiểm chứng bản sửa HANDSFREE-REVIEW-001:** 20/20 test continuous đạt;
