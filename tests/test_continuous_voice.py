@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 import struct
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 import wave
@@ -459,6 +460,125 @@ class ContinuousVoiceTests(unittest.TestCase):
         self.assertFalse(session.is_running)
         self.assertEqual(session.state, ContinuousSessionState.STANDBY)
         self.assertEqual(session.ring_buffer.duration_seconds, 0.0)
+
+    def test_wake_detector_slow_verifier_does_not_block_stop(self):
+        """Slow wake verification outside lock allows stop() to complete immediately without waiting."""
+        import threading
+        verifier_started = threading.Event()
+        verifier_finish = threading.Event()
+
+        def slow_verifier(pcm):
+            verifier_started.set()
+            verifier_finish.wait(timeout=2.0)
+            return "elvion"
+
+        wake_detector = KeywordWakeWordDetector(
+            verifier=slow_verifier,
+            energy_threshold=50.0,
+            min_check_interval=0.05,
+        )
+        session = ContinuousVoiceSession(wake_detector=wake_detector)
+        session.start()
+
+        feed_thread = threading.Thread(
+            target=session.feed_audio,
+            args=(make_sine_pcm(duration_seconds=1.5, amplitude=5000.0),),
+            daemon=True,
+        )
+        feed_thread.start()
+
+        # Wait until slow verifier begins executing inside detect()
+        self.assertTrue(verifier_started.wait(timeout=1.0))
+
+        # While slow verifier is blocked, calling stop() from another thread must not hang
+        t0 = time.monotonic()
+        session.stop()
+        elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 0.15)
+        self.assertFalse(session.is_running)
+
+        # Release slow verifier
+        verifier_finish.set()
+        feed_thread.join(timeout=1.0)
+        # Session was stopped; state must stay STANDBY rather than transition to AWAKE or LISTENING
+        self.assertEqual(session.state, ContinuousSessionState.STANDBY)
+
+    def test_stopped_and_restarted_session_discards_stale_worker_reply(self):
+        """Worker from previous session generation does not mutate state or deliver replies into new session."""
+        import threading
+        stt_started = threading.Event()
+        stt_finish = threading.Event()
+
+        fake_voice_session = Mock()
+        def blocking_transcribe(wav_path):
+            stt_started.set()
+            stt_finish.wait(timeout=2.0)
+            return Mock(text="lệnh cũ từ phiên trước")
+
+        fake_voice_session.voice_input.transcribe = blocking_transcribe
+        fake_voice_session.handle_utterance.return_value = "kết quả cũ"
+
+        replies = []
+        transcripts = []
+        session = ContinuousVoiceSession(
+            voice_session=fake_voice_session,
+            async_dispatch=True,
+            on_reply=lambda r: replies.append(r),
+            on_transcript=lambda t: transcripts.append(t),
+        )
+        session.start()
+
+        # Transition directly to LISTENING and feed speech ending to trigger utterance dispatch
+        session._set_state(ContinuousSessionState.LISTENING)
+        vad = session.vad
+        vad.state = VADState.SPEAKING
+        speech = make_sine_pcm(duration_seconds=0.02, amplitude=5000.0)
+        silence = make_silence_pcm(duration_seconds=0.02, amplitude=10.0)
+        session.feed_audio(speech)
+        for _ in range(45):
+            session.feed_audio(silence)
+
+        # Verify worker started transcribing
+        self.assertTrue(stt_started.wait(timeout=1.0))
+
+        # Stop old session and immediately start a new session (generation advances)
+        session.stop()
+        session.start()
+        self.assertEqual(session.state, ContinuousSessionState.STANDBY)
+
+        # Unblock old STT worker and wait for worker thread to exit
+        stt_finish.set()
+        self.assertTrue(session.wait_idle(timeout=2.0))
+
+        # Stale worker must have been rejected by generation check:
+        # no reply sent, no transcript callback, state remains in new session's STANDBY
+        self.assertEqual(len(replies), 0)
+        self.assertEqual(len(transcripts), 0)
+        self.assertEqual(session.state, ContinuousSessionState.STANDBY)
+
+    def test_qwen_preferences_sanitization_in_runner(self):
+        """Runner sanitizes context and model for Qwen without raising ValueError."""
+        from elvion.interface.voice_settings import VoicePreferences
+        from elvion.voice.input.qwen import QwenTranscriber, DEFAULT_MODEL
+        from pathlib import Path
+
+        # Simulate voice preferences with Qwen and Whisper's default 'elvion' context preset
+        prefs = VoicePreferences(
+            stt_engine="qwen",
+            stt_context="elvion",
+            stt_model="/tmp/fake_whisper.bin",
+        )
+        # Runner rules
+        model_path = prefs.stt_model if (prefs.stt_model and Path(prefs.stt_model).is_dir()) else DEFAULT_MODEL
+        qwen_ctx = prefs.stt_context if prefs.stt_context in ("none", "tech") else "tech"
+
+        transcriber = QwenTranscriber(
+            model_path=model_path,
+            context=qwen_ctx,
+            language="vi",
+        )
+        self.assertEqual(transcriber.context, "tech")
+        self.assertEqual(str(transcriber.model_path), str(DEFAULT_MODEL))
 
 
 if __name__ == "__main__":

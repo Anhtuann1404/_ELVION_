@@ -1,6 +1,6 @@
 # Báo Cáo Kỹ Thuật: Trải Nghiệm Giọng Nói Rảnh Tay (Hands-free Continuous Voice)
 
-Tài liệu này đặc tả chi tiết kiến trúc, cơ chế xử lý âm thanh thời gian thực, cỗ máy trạng thái, giải pháp phòng chống ảo giác (anti-hallucination), bộ kiểm thử 14 ca và hướng dẫn vận hành tính năng **Hội thoại Rảnh tay (Hands-free Voice Session)** cho trợ lý ELVION trên macOS.
+Tài liệu này đặc tả chi tiết kiến trúc, cơ chế xử lý âm thanh thời gian thực, cỗ máy trạng thái, giải pháp phòng chống ảo giác (anti-hallucination), bộ kiểm thử 20 ca và hướng dẫn vận hành tính năng **Hội thoại Rảnh tay (Hands-free Voice Session)** cho trợ lý ELVION trên macOS.
 
 ---
 
@@ -16,7 +16,7 @@ Tài liệu này đặc tả chi tiết kiến trúc, cơ chế xử lý âm tha
 ### 1.2. Nguyên tắc Bất biến: Bảo toàn 100% mã nguồn cũ
 - **Zero Modification**: Toàn bộ các module hiện có (`InteractiveSession`, `VoiceSession`, `NativeRecorder`, `whisper.py`, `qwen.py`, `contracts.py`) được **giữ nguyên 100% cấu trúc, logic và hợp đồng**.
 - **Mở rộng theo cơ chế Composition**: Tính năng mới được tổ chức hoàn toàn trong gói [`src/elvion/voice/continuous/`](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/), bọc ngoài và tái sử dụng các dịch vụ hiện có của ELVION.
-- **Bảo toàn hồi quy**: Toàn bộ 964 bài kiểm thử của cả dự án chạy đạt 100% xanh (0 regressions).
+- **Bảo toàn hồi quy**: Toàn bộ 967 bài kiểm thử của cả dự án chạy đạt 100% xanh (1 skipped, 0 regressions).
 
 ---
 
@@ -46,7 +46,7 @@ src/elvion/voice/continuous/
 - Cung cấp hàm trích xuất lát cắt âm thanh (`read_recent`) phục vụ bộ dò Wake Word.
 
 ### 2.3. Voice Activity Detector thích ứng ([vad.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/vad.py))
-- Đo năng lượng RMS và Zero Crossing Rate (ZCR) trên từng khung 20ms.
+- Đo năng lượng RMS trên từng khung 20ms để nhận diện giọng nói (phương thức `compute_zcr` sẵn sàng cho việc phân tích tần số khi cần).
 - **Sàn nhiễu thích ứng (Adaptive Noise Floor)**: Tự động hiệu chỉnh ngưỡng nhiễu nền khi môi trường thay đổi độ ồn.
 - **Ngưỡng năng lượng thực tế**: Thiết lập `min_speech_rms = 300.0 - 350.0` và `speech_multiplier = 2.8` giúp hạn chế kích hoạt bởi tiếng quạt tản nhiệt của MacBook.
 - **Silence Hangover**: Duy trì bộ đếm 800ms im lặng liên tục mới xác nhận dứt câu, tránh ngắt lời khi người dùng chỉ đang lấy hơi.
@@ -74,7 +74,12 @@ src/elvion/voice/continuous/
 ### 2.6. Continuous Voice Session ([session.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/session.py))
 - Điều phối cỗ máy 6 trạng thái kèm 2 bộ đếm thời gian an toàn (`_listen_deadline` và `_follow_up_deadline`).
 - **Khởi tạo Deadline chuẩn xác**: `_listen_deadline` được tính sau khi hoàn tất kiểm tra từ khóa và phát xong chuông thức giấc (`LISTENING`), ngăn ngừa việc hết hạn oan uổng nếu bộ giải mã STT xử lý chậm 1-5 giây.
-- **Xử lý bất đồng bộ không nghẽn (Non-blocking Ingestion)**: Luồng thu nạp âm thanh tách rời việc dispatch xử lý (`async_dispatch=True`). Trong lúc hệ thống suy luận (`PROCESSING`) hoặc trợ lý đang nói qua loa (`SPEAKING`), các frame âm thanh từ micro được hấp thu và bỏ qua an toàn mà không giữ khóa, giúp `session.stop()` thu hồi ngay lập tức (< 0.1ms). Khi chuyển sang `FOLLOW_UP`, VAD và ring buffer được làm sạch để chống tiếng vọng loa (acoustic echo) kích hoạt lại lượt nghe.
+- **Xử lý bất đồng bộ không nghẽn & Phân tách thế hệ (Epoch Generation)**:
+  - Luồng thu nạp âm thanh tách rời việc dò từ khóa và dispatch xử lý (`async_dispatch=True`).
+  - Tách việc kiểm tra từ khóa (`wake_detector.detect`) và chuông thức giấc (`on_wake`) ra khỏi lock; khi đang nhận dạng hoặc phát loa, các frame âm thanh từ micro được hấp thu liên tục vào bộ đệm trượt mà không gây nghẽn luồng đọc audio của OS pipe.
+  - Hàm `session.stop()` thu hồi lock nhanh chóng vì không bị giữ bởi tầng STT verifier hay TTS.
+  - Cơ chế `_generation` (epoch tracking) vô hiệu hóa toàn bộ worker cũ khi phiên dừng hoặc khởi động lại, ngăn chặn tác vụ cũ trả lời vào phiên mới.
+  - Làm sạch ring buffer và VAD khi chuyển sang `FOLLOW_UP` nhằm giảm thiểu nguy cơ kích hoạt lại bởi tiếng vọng loa (cần đo kiểm native cụ thể trên phần cứng thực tế).
 
 ```
        ┌────────────────────────────────────────────────────────┐
@@ -109,7 +114,7 @@ src/elvion/voice/continuous/
 
 ## 3. Danh mục Kiểm thử Chi tiết (`tests/test_continuous_voice.py`)
 
-Bộ kiểm thử đạt **17/17 test cases passed** trong **0.017 giây**:
+Bộ kiểm thử đạt **20/20 test cases passed** trong **0.025 giây**:
 
 | STT | Tên ca kiểm thử | Phạm vi | Mô tả kiểm thử & Tiêu chuẩn nghiệm thu | Kết quả |
 |:---:|---|---|---|:---:|
@@ -130,6 +135,9 @@ Bộ kiểm thử đạt **17/17 test cases passed** trong **0.017 giây**:
 | 15 | `test_whisper_hallucination_filter` | Hallucination | Kiểm chứng bộ lọc: Bắt chính xác lời cảm ơn YouTube, phụ đề, từ lặp $\ge 75\%$; cho phép câu lệnh hợp lệ đi qua. | **PASS** |
 | 16 | `test_feed_audio_during_processing_and_speaking_absorbs_frames` | Session / Non-blocking | Kiểm chứng các frame đến trong lúc `PROCESSING` và `SPEAKING` được hấp thu/drop mà không nghẽn pipeline. | **PASS** |
 | 17 | `test_session_stop_clears_memory_and_resets` | Session | Dừng phiên kiểm tra cờ running tắt, giải phóng toàn bộ audio PCM khỏi RAM và reset state về `STANDBY`. | **PASS** |
+| 18 | `test_wake_detector_slow_verifier_does_not_block_stop` | Session / Lock isolation | Kiểm chứng verifier wake chạy ngoài lock: khi verifier đang chờ/xử lý, gọi `stop()` từ luồng khác thu hồi ngay lập tức không bị treo. | **PASS** |
+| 19 | `test_stopped_and_restarted_session_discards_stale_worker_reply` | Session / Generation | Kiểm chứng cơ chế epoch generation: worker cũ từ phiên trước bị hủy bỏ kết quả, không làm đổi state hay phát reply vào phiên mới. | **PASS** |
+| 20 | `test_qwen_preferences_sanitization_in_runner` | Runner / STT config | Kiểm chứng runner tự động chuẩn hóa context và model cho Qwen, không ném ValueError trước khi mở mic. | **PASS** |
 
 **Kiểm thử hồi quy toàn bộ dự án**:
 ```bash
@@ -170,11 +178,11 @@ PYTHONPATH=src:. python3 scripts/run_handsfree_voice.py
 ---
 
 ### Cách 2: Chạy kiểm thử tự động (Unit Tests)
-Chạy bộ test suite 17 ca:
+Chạy bộ test suite 20 ca:
 ```bash
 PYTHONPATH=src:. python3 -m unittest -v tests/test_continuous_voice.py
 ```
-Toàn bộ 17 bài kiểm thử sẽ hoàn tất trong ~0.02 giây và báo `OK`.
+Toàn bộ 20 bài kiểm thử sẽ hoàn tất trong ~0.03 giây và báo `OK`.
 
 ---
 

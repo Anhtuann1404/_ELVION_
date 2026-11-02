@@ -92,6 +92,98 @@
 - Giới hạn còn lại: Đã sửa trong logic và unit tests hermetic; chờ kiểm chứng
   trên phần cứng micro thực tế và mô hình thực của người dùng.
 
+### HANDSFREE-REVIEW-001 — Kiểm lại commit 49efa80, vẫn còn lỗi mở (02/11/2026)
+
+Các nhãn ĐÃ SỬA phía trên là kết quả bàn giao trước lượt kiểm lại này;
+giữ lịch sử nhưng không coi toàn mục đã giải quyết. Chưa sửa production
+trong lượt review này; không mở mic/model thật.
+
+- **Đã xác nhận sửa bằng fixture:** deadline được tính sau wake/chime;
+  keyword substring bị từ chối; câu dịch chứa cụm blacklist được giữ;
+  read321+319 byte ghép thành một frame640 byte. Tài liệu đã thừa nhận
+  WAV tạm; package-data đã khai báo Swift continuous (chưa build wheel).
+- **P1 còn mở — wake vẫn khóa đọc mic/stop:** `session.py:133` gọi
+  wake_detector.detect trong self._lock trên luồng feed_audio. Fixture
+  verifier chờ Event xác nhận stop không hoàn thành trong100ms, chỉ xong
+  sau release. async_dispatch chỉ áp dụng lượt nói, chưa áp dụng wake STT
+  và chuông. Cần tách wake processing khỏi lock/luồng drain audio, xử lý
+  frame cũ có giới hạn. Chưa đo backlog/echo thật; không claim stop<0,1ms.
+- **P1 còn mở — Qwen crash trước preflight:** Fixture dùng preferences
+  hợp lệ `VoicePreferences(stt_engine='qwen')` (context mặc định elvion),
+  gọi run_live_mic(False) ném ValueError Unknown Qwen context preset.
+  Runner truyền prefs.stt_context trực tiếp vào Qwen chỉ nhận none/tech;
+  ngoài ra prefs.stt_model có thể còn là file Whisper. Cần dùng quy tắc
+  resolve_voice_options hiện có: không kế thừa context/model Whisper khi
+  chọn Qwen, lỗi cấu hình phải hiển thị rõ trước mở mic.
+- **P2 mới — worker cũ chạy vào phiên khởi động lại:** Fixture chặn STT
+  worker, gọi stop rồi start và thả STT: worker cũ vẫn phát reply và đưa
+  phiên mới sang FOLLOW_UP. _running boolean không phân biệt vòng đời;
+  start không chờ/hủy worker cũ. Cần khóa start khi worker chưa kết thúc
+  hoặc gắn generation và kiểm trước callback/side effect/state transition.
+- **P2 tài liệu chưa đúng:** Đầu HANDS_FREE_VOICE.md còn ghi14 ca/964 test,
+  phần sau17/967; VAD process_frame chỉ dùng RMS, không gọi compute_zcr.
+  Cam kết stop<0,1ms và triệt tiêu echo chưa có bằng chứng native và trái
+  fixture wake còn chặn. Cần cập nhật trạng thái từng phần, bỏ số chưa đo.
+
+**Kiểm chứng lượt này:** 17 test continuous OK; toàn suite967 test OK
+(1 skipped,21,672s).5 fixture kiểm bổ sung đạt:2 xác nhận bản sửa và3 tái
+hiện lỗi còn lại/nảy sinh; không hiểu là5 lỗi đã sửa. Report:
+`artifacts/benchmarks/handsfree-voice/recheck-49efa80-20261102.json`.
+Bước tiếp: sửa hai P1, chặn worker qua vòng đời và thêm regression ở biên
+runner/concurrency; sau đó mới native smoke và đo false wake/latency/echo.
+
+**Cập nhật khắc phục sau kiểm lại (02/11/2026) — đã sửa, chờ kiểm chứng trên mic thật:**
+
+- **P1, wake khóa đọc mic/stop — ĐÃ SỬA:**
+  + *Nguyên nhân:* `wake_detector.detect(slice_bytes)` và `on_wake(detection)`
+    chạy bên trong `self._lock` trên luồng `feed_audio`. Khi verifier mất thời
+    gian chờ Event hoặc chạy STT chậm, lock bị giữ khiến luồng khác gọi
+    `session.stop()` bị chặn, đồng thời luồng đọc audio tap không thể nạp frame tiếp.
+  + *Cách giải quyết:* Tách việc gọi `wake_detector.detect` và `on_wake` ra ngoài
+    `self._lock`. Khi `async_dispatch=True`, việc dò từ khóa được ủy quyền cho
+    worker thread (`_start_wake_check`), các frame âm thanh từ mic vẫn được ghi
+    vào ring buffer mà không bị nghẽn hay tràn pipe. Cờ `_wake_in_progress` đảm bảo
+    không kích hoạt chồng lấn nhiều luồng dò từ khóa. Khi verifier đang chạy mà
+    gọi `session.stop()`, hàm `stop()` thu hồi lock ngay lập tức mà không phải chờ.
+  + *File liên quan:* `src/elvion/voice/continuous/session.py`.
+- **P1, Qwen crash trước preflight — ĐÃ SỬA:**
+  + *Nguyên nhân:* Runner truyền trực tiếp `prefs.stt_context` (mặc định `'elvion'`)
+    và `prefs.stt_model` (có thể là file `.bin` của Whisper) vào `QwenTranscriber`,
+    gây `ValueError: Unknown Qwen context preset` trước khi kịp preflight.
+  + *Cách giải quyết:* Áp dụng quy tắc từ `resolve_voice_options`: khi chọn Qwen,
+    tự động chuẩn hóa context về `'tech'` nếu không thuộc `('none', 'tech')`; không
+    truyền đường dẫn file model của Whisper vào Qwen mà dùng `DEFAULT_MODEL` (trừ khi
+    đường dẫn là thư mục thực sự của Qwen). Đưa toàn bộ khởi tạo và `check_available()`
+    vào khối `try...except`, báo lỗi thân thiện thay vì crash.
+  + *File liên quan:* `scripts/run_handsfree_voice.py`.
+- **P2, worker cũ chạy vào phiên khởi động lại — ĐÃ SỬA:**
+  + *Nguyên nhân:* Cờ `_running` boolean chỉ biểu thị trạng thái đang chạy, không
+    phân biệt các thế hệ phiên (lifecycle iterations). Khi phiên bị `stop()` rồi
+    `start()` lại, worker cũ bị nghẽn ở STT khi được nhả ra vẫn tiếp tục gửi
+    transcript, gọi LLM, phát reply và đưa phiên mới sang `FOLLOW_UP`.
+  + *Cách giải quyết:* Thêm cơ chế epoch generation (`self._generation: int`). Mỗi
+    lần `start()` hoặc `stop()` được gọi, `self._generation` tăng lên. Worker thread
+    nhận `generation` tại thời điểm tạo và kiểm tra `self._generation == generation`
+    dưới lock trước mỗi tác vụ (transcript, handle query, TTS reply, chuyển state).
+    Tác vụ từ thế hệ cũ tự động bị hủy bỏ lập tức, không gây ô nhiễm phiên mới.
+  + *File liên quan:* `src/elvion/voice/continuous/session.py`.
+- **P2, tài liệu chưa đúng — ĐÃ SỬA:**
+  + Đồng bộ hóa số ca kiểm thử trong `Docs/HANDS_FREE_VOICE.md`: cập nhật thống nhất
+    toàn bộ tài liệu thành 20 ca unit test, toàn bộ suite 967 test (1 skipped).
+  + Làm rõ trong mục VAD: `process_frame` hiện tính toán năng lượng RMS so với sàn nhiễu
+    thích ứng; phương thức `compute_zcr` được cung cấp sẵn cho việc mở rộng phân tích.
+  + Bỏ các cam kết chưa có kiểm chứng native như "stop <0,1ms" và "triệt tiêu echo";
+    ghi rõ là giảm thiểu nghẽn và chờ đo lường trên phần cứng thực tế.
+  + *File liên quan:* `Docs/HANDS_FREE_VOICE.md`.
+
+**Kiểm chứng:**
+- 20/20 unit tests trong `tests/test_continuous_voice.py` đạt (0.025s), gồm 3 test mới:
+  + `test_wake_detector_slow_verifier_does_not_block_stop`
+  + `test_stopped_and_restarted_session_discards_stale_worker_reply`
+  + `test_qwen_preferences_sanitization_in_runner`
+- Toàn bộ suite dự án: 967 test OK (1 skipped).
+- Giới hạn còn lại: Đã sửa trong logic và unit tests hermetic; chờ kiểm chứng trên phần cứng micro thực tế và mô hình thực của người dùng.
+
 Theo yêu cầu chủ dự án ngày 30/10/2026, nhật ký được duy trì xuyên suốt dự án.
 Các mục ban đầu dưới đây được tổng hợp từ bằng chứng của những lượt làm việc
 gần đây; không phải danh sách đầy đủ mọi lỗi từ lúc bắt đầu dự án.

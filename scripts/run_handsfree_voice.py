@@ -67,27 +67,31 @@ def run_live_mic(speak_enabled: bool = True) -> None:
         prefs = VoicePreferences()
 
     # 2. Select and preflight configured STT engine
-    if prefs.stt_engine == "qwen":
-        from elvion.voice.input.qwen import QwenTranscriber, MODEL_PROFILES
-        model_path = prefs.stt_model or MODEL_PROFILES.get("1.7b", {}).get("directory")
-        transcriber = QwenTranscriber(
-            model_path=model_path,
-            context=prefs.stt_context or "tech",
-            language="vi",
-        )
-        stt_desc = f"Qwen ASR ({Path(model_path).name if model_path else 'default'})"
-    else:
-        transcriber = WhisperTranscriber(
-            model_path=prefs.stt_model,
-            context=prefs.stt_context or "none",
-        )
-        model_name = Path(prefs.stt_model).name if prefs.stt_model else "default"
-        stt_desc = f"Whisper.cpp ({model_name})"
-
     try:
+        if prefs.stt_engine == "qwen":
+            from elvion.voice.input.qwen import QwenTranscriber, DEFAULT_MODEL
+            # Follow resolve_voice_options rules: do not inherit Whisper file models when Qwen is chosen
+            model_path = prefs.stt_model if (prefs.stt_model and Path(prefs.stt_model).is_dir()) else DEFAULT_MODEL
+            # Qwen only accepts 'none' or 'tech'; 'elvion' is a Whisper preset
+            qwen_ctx = prefs.stt_context if prefs.stt_context in ("none", "tech") else "tech"
+            transcriber = QwenTranscriber(
+                model_path=model_path,
+                context=qwen_ctx,
+                language="vi",
+            )
+            stt_desc = f"Qwen ASR ({Path(model_path).name if model_path else 'default'})"
+        else:
+            transcriber = WhisperTranscriber(
+                model_path=prefs.stt_model,
+                context=prefs.stt_context or "none",
+            )
+            model_name = Path(prefs.stt_model).name if prefs.stt_model else "default"
+            stt_desc = f"Whisper.cpp ({model_name})"
+
         transcriber.check_available()
-    except VoiceInputError as err:
-        print(f"❌ Không thể khởi động STT ({err.code}). Vui lòng kiểm tra lại cấu hình voice.")
+    except (VoiceInputError, ValueError, Exception) as err:
+        err_msg = getattr(err, "code", str(err))
+        print(f"❌ Không thể khởi động STT ({err_msg}). Vui lòng kiểm tra lại cấu hình voice.")
         return
 
     print("=" * 64)

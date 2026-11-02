@@ -68,8 +68,11 @@ class ContinuousVoiceSession:
         self._follow_up_deadline = 0.0
         self._listen_deadline = 0.0
         self._running = False
+        self._generation = 0
+        self._wake_in_progress = False
         self._last_processed_transcript = ""
         self._dispatch_thread: threading.Thread | None = None
+        self._wake_thread: threading.Thread | None = None
 
     def _set_state(self, new_state: ContinuousSessionState) -> None:
         if self.state != new_state:
@@ -83,15 +86,20 @@ class ContinuousVoiceSession:
     def start(self) -> None:
         """Start the continuous hands-free session loop."""
         with self._lock:
+            self._generation += 1
             self._running = True
+            self._wake_in_progress = False
             self._set_state(ContinuousSessionState.STANDBY)
             self.ring_buffer.clear()
+            self._active_utterance_pcm.clear()
             self.vad.reset()
 
     def stop(self) -> None:
-        """Stop the session and release in-memory audio buffers immediately."""
+        """Stop the session, invalidate pending workers, and release audio buffers."""
         with self._lock:
             self._running = False
+            self._generation += 1
+            self._wake_in_progress = False
             self._set_state(ContinuousSessionState.STANDBY)
             self.ring_buffer.clear()
             self._active_utterance_pcm.clear()
@@ -103,15 +111,23 @@ class ContinuousVoiceSession:
             return self._running
 
     def wait_idle(self, timeout: float = 3.0) -> bool:
-        """Wait for any asynchronous dispatch worker to complete."""
+        """Wait for any asynchronous workers (wake check or utterance dispatch) to complete."""
+        success = True
+        if self._wake_thread is not None and self._wake_thread.is_alive():
+            self._wake_thread.join(timeout=timeout)
+            if self._wake_thread.is_alive():
+                success = False
         if self._dispatch_thread is not None and self._dispatch_thread.is_alive():
             self._dispatch_thread.join(timeout=timeout)
-            return not self._dispatch_thread.is_alive()
-        return True
+            if self._dispatch_thread.is_alive():
+                success = False
+        return success
 
     def feed_audio(self, chunk: bytes) -> None:
         """Ingest streaming audio frame (16 kHz 16-bit mono Linear PCM)."""
         dispatch_pcm: bytes | None = None
+        wake_slice: bytes | None = None
+        current_gen = 0
 
         with self._lock:
             if not self._running:
@@ -124,26 +140,15 @@ class ContinuousVoiceSession:
 
             # Always maintain rolling ambient window in ring buffer
             self.ring_buffer.write(chunk)
+            current_gen = self._generation
 
             # -------------------------------------------------------------
             # State 1: STANDBY (Listening for Wake Word)
             # -------------------------------------------------------------
             if self.state == ContinuousSessionState.STANDBY:
-                slice_bytes = self.ring_buffer.read_recent(self.wake_slice_seconds)
-                detection = self.wake_detector.detect(slice_bytes)
-                if detection.detected:
-                    self._set_state(ContinuousSessionState.AWAKE)
-                    if self.on_wake is not None:
-                        try:
-                            self.on_wake(detection)
-                        except Exception:
-                            pass
-                    # Prepare for speech capture
-                    self.vad.reset()
-                    self._active_utterance_pcm.clear()
-                    # Calculate deadline freshly after wake detection & chime
-                    self._listen_deadline = self.clock() + self.listen_timeout_seconds
-                    self._set_state(ContinuousSessionState.LISTENING)
+                if not self._wake_in_progress:
+                    wake_slice = self.ring_buffer.read_recent(self.wake_slice_seconds)
+                    self._wake_in_progress = True
 
             # -------------------------------------------------------------
             # State 2: FOLLOW_UP (Waiting for speech without needing wake word)
@@ -179,33 +184,90 @@ class ContinuousVoiceSession:
                     self._active_utterance_pcm.clear()
                     self.vad.reset()
 
+        # Handle wake check OUTSIDE self._lock to avoid blocking stop() or audio ingestion
+        if wake_slice is not None:
+            if self.async_dispatch:
+                self._start_wake_check(wake_slice, current_gen)
+            else:
+                self._check_wake(wake_slice, current_gen)
+
         # Dispatch utterance outside self._lock to avoid blocking audio ingestion / stop()
         if dispatch_pcm is not None:
             if self.async_dispatch:
-                self._start_utterance_dispatch(dispatch_pcm)
+                self._start_utterance_dispatch(dispatch_pcm, current_gen)
             else:
-                self._dispatch_utterance(dispatch_pcm)
+                self._dispatch_utterance(dispatch_pcm, current_gen)
 
-    def _start_utterance_dispatch(self, utterance_pcm: bytes) -> None:
+    def _start_wake_check(self, slice_bytes: bytes, generation: int) -> None:
+        """Run wake-word detection in background thread so audio reader doesn't block."""
+        worker = threading.Thread(
+            target=self._check_wake,
+            args=(slice_bytes, generation),
+            daemon=True,
+            name="elvion-wake-worker",
+        )
+        self._wake_thread = worker
+        worker.start()
+
+    def _check_wake(self, slice_bytes: bytes, generation: int) -> None:
+        """Inspect wake slice outside locks, triggering AWAKE -> LISTENING if recognized."""
+        try:
+            detection = self.wake_detector.detect(slice_bytes)
+        except Exception:
+            detection = WakeWordResult(detected=False)
+
+        wake_detected = False
+        with self._lock:
+            self._wake_in_progress = False
+            if (
+                self._running
+                and self._generation == generation
+                and self.state == ContinuousSessionState.STANDBY
+                and detection.detected
+            ):
+                self._set_state(ContinuousSessionState.AWAKE)
+                wake_detected = True
+
+        if not wake_detected:
+            return
+
+        # Play chime / invoke callback OUTSIDE self._lock so sound playback does not block stop()
+        if self.on_wake is not None:
+            try:
+                self.on_wake(detection)
+            except Exception:
+                pass
+
+        with self._lock:
+            if not self._running or self._generation != generation or self.state != ContinuousSessionState.AWAKE:
+                return
+            # Prepare for speech capture
+            self.vad.reset()
+            self._active_utterance_pcm.clear()
+            # Calculate deadline freshly after wake detection & chime finish
+            self._listen_deadline = self.clock() + self.listen_timeout_seconds
+            self._set_state(ContinuousSessionState.LISTENING)
+
+    def _start_utterance_dispatch(self, utterance_pcm: bytes, generation: int) -> None:
         """Run utterance processing in a background worker thread."""
         worker = threading.Thread(
             target=self._dispatch_utterance,
-            args=(utterance_pcm,),
+            args=(utterance_pcm, generation),
             daemon=True,
             name="elvion-utterance-worker",
         )
         self._dispatch_thread = worker
         worker.start()
 
-    def _dispatch_utterance(self, pcm_data: bytes) -> None:
+    def _dispatch_utterance(self, pcm_data: bytes, generation: int) -> None:
         """Process captured speech through existing VoiceSession outside locks."""
         with self._lock:
-            if not self._running:
+            if not self._running or self._generation != generation:
                 return
 
         if not pcm_data or len(pcm_data) < self.min_utterance_bytes:
             with self._lock:
-                if self._running:
+                if self._running and self._generation == generation:
                     self._set_state(ContinuousSessionState.STANDBY)
                     self.vad.reset()
             return
@@ -214,7 +276,7 @@ class ContinuousVoiceSession:
         rms = calculate_pcm_rms(pcm_data)
         if rms < 280.0:
             with self._lock:
-                if self._running:
+                if self._running and self._generation == generation:
                     self._set_state(ContinuousSessionState.STANDBY)
                     self.vad.reset()
             return
@@ -238,17 +300,25 @@ class ContinuousVoiceSession:
                         transcript = res.text if hasattr(res, "text") else str(res)
 
                 with self._lock:
-                    if not self._running:
+                    if not self._running or self._generation != generation:
                         return
 
                 # Filter out empty or Whisper phantom hallucinations
                 if transcript and not is_whisper_hallucination(transcript):
-                    self._last_processed_transcript = transcript
+                    with self._lock:
+                        if not self._running or self._generation != generation:
+                            return
+                        self._last_processed_transcript = transcript
+
                     if self.on_transcript is not None:
                         try:
                             self.on_transcript(transcript)
                         except Exception:
                             pass
+
+                    with self._lock:
+                        if not self._running or self._generation != generation:
+                            return
 
                     # 2. If voice_session has interactive execution, route query
                     if self.voice_session is not None:
@@ -259,14 +329,15 @@ class ContinuousVoiceSession:
                             reply_text = self.voice_session.handle_utterance(transcript)
 
                 with self._lock:
-                    if not self._running:
+                    if not self._running or self._generation != generation:
                         return
 
                 # 3. Speak reply via TTS if output service available
                 if reply_text and self.on_reply is not None:
                     with self._lock:
-                        if self._running:
-                            self._set_state(ContinuousSessionState.SPEAKING)
+                        if not self._running or self._generation != generation:
+                            return
+                        self._set_state(ContinuousSessionState.SPEAKING)
                     try:
                         self.on_reply(reply_text)
                     except Exception:
@@ -277,7 +348,7 @@ class ContinuousVoiceSession:
 
         # 4. Final transition to FOLLOW_UP or STANDBY
         with self._lock:
-            if not self._running:
+            if not self._running or self._generation != generation:
                 return
             # Flush ring buffer and reset VAD to avoid speaker echo from TTS playback
             self.ring_buffer.clear()
