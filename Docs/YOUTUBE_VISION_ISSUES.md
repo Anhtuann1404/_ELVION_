@@ -9,10 +9,10 @@
 - Nguyên nhân xác minh: Chênh lệch giữa working tree và `origin/main`. Chưa có bằng chứng lỗi của browser runtime.
 - Bước tiếp theo: Tiếp tục triển khai và đo trên worktree YouTube. Tích hợp CLI ở nhánh chính vì `interface/session.py` vẫn ngoài phạm vi sửa.
 
-## YT-NATIVE-001 — YouTube public search đôi khi không đạt trạng thái sẵn sàng
+## YT-NATIVE-001 — Phép chờ tiêu đề YouTube lỗi do Trusted Types
 
-- Triệu chứng: cùng truy vấn công khai `python tutorial`, một lượt Chromium headless có tiêu đề và 12 `ytd-video-renderer` sau 1 giây; một lượt khác `YouTubeSession.navigate` chờ `document.title.length > 0` 10 giây rồi trả `YT_PAGE_NOT_READY`.
-- Bằng chứng: hai lượt chạy trong worktree YouTube ngày 02/11/2026; trang chỉ đọc, không đăng nhập/click. Một capture dev khác có ảnh viewport và metadata tại `artifacts/benchmarks/web-observation/capture-73805142f5d6/`. Không lưu raw DOM.
-- Tác động: Chưa thể coi native search ổn định hoặc xác nhận luồng mở video end-to-end.
-- Trạng thái: Đang điều tra; chưa có lỗi code đã xác minh. Giả thuyết gồm tải tài nguyên bị chặn bởi policy cùng host, mạng hoặc trạng thái động của YouTube; chưa phân biệt được.
-- Bước tiếp theo: Dùng các lần thử bounded trên cùng policy để ghi mã lỗi, URL cuối, ready/title/result counts; không nới host, không tự retry sau dispatch và không thay đổi kết luận Vision cũ.
+- Triệu chứng: `YouTubeSession.navigate` báo `YT_PAGE_NOT_READY` dù có lượt trang đã hiện tiêu đề và 16 `ytd-video-renderer`.
+- Nguyên nhân đã xác minh ngày 04/11/2026: `page.wait_for_function("document.title.length > 0")` trả ngay `EvalError: Evaluating a string as JavaScript violates this document's Trusted Type assignment requirements.` Lỗi bị bắt rộng và đổi thành `YT_PAGE_NOT_READY`, khiến chẩn đoán ban đầu sai.
+- Sửa: đọc `page.title()` qua Playwright trong tối đa 10 giây; không thực thi chuỗi JavaScript trong trang, không thay policy/allowlist và không retry điều hướng.
+- Kiểm: 3/3 lượt Chromium headless đọc được tiêu đề, 12–16 renderer; một lượt `YouTubeWorkflow.search` trả 5 video; một lượt tìm rồi mở đúng URL/video ID đã chọn. Đây là mẫu nhỏ, chưa chứng minh ổn định dài hạn hoặc phát video.
+- Trạng thái: Đã sửa lỗi chờ; giữ kiểm native trên các trang và trạng thái YouTube khác trong phạm vi đánh giá tiếp theo. Capture dev cũ tại `artifacts/benchmarks/web-observation/capture-73805142f5d6/` vẫn chưa có annotation độc lập hoặc điểm Vision.

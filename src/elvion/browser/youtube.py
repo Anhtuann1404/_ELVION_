@@ -1,5 +1,6 @@
 """Small, opt-in YouTube search flow using the existing web policy and verifier."""
 from dataclasses import dataclass
+from time import monotonic
 from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import uuid4
 
@@ -34,10 +35,15 @@ class YouTubeSession(BrowserSession):
     def navigate(self, url, *, authorized):
         super().navigate(url, authorized=authorized)
         if urlsplit(url).hostname == "www.youtube.com":
-            try:
-                self.page.wait_for_function("document.title.length > 0", timeout=10000)
-            except Exception:
-                raise YouTubeError("YT_PAGE_NOT_READY") from None
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                try:
+                    if self.page.title().strip():
+                        return
+                    self.page.wait_for_timeout(250)
+                except Exception:
+                    break
+            raise YouTubeError("YT_PAGE_NOT_READY")
 
 
 class YouTubeWorkflow:

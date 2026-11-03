@@ -8,7 +8,8 @@ from elvion.core.contracts import ConfirmationResponse
 def confirm(request):
     print(request.preview)
     approved = input("Xác nhận hành động này? [có/không] ").strip().lower() in {"có", "co", "yes", "y"}
-    return ConfirmationResponse(request.confirmation_id, request.action_digest, approved)
+    return ConfirmationResponse(confirmation_id=request.confirmation_id,
+                                action_digest=request.action_digest, approved=approved)
 
 
 def main():

@@ -2,8 +2,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from elvion.browser.youtube import YouTubeError, YouTubeWorkflow, video_id
+from elvion.browser.youtube import YouTubeError, YouTubeSession, YouTubeWorkflow, video_id
 from elvion.core.contracts import TaskStatus
+from scripts.check_youtube import confirm
 
 
 class Row:
@@ -58,6 +59,25 @@ class YouTubeWorkflowTests(unittest.TestCase):
                     "https://www.youtube.com/watch?v=bad",
                     "https://www.youtube.com/watch?v=abcdefghijk&v=12345678901"):
             self.assertIsNone(video_id(url))
+
+    def test_youtube_navigation_waits_for_title_without_javascript_eval(self):
+        session = YouTubeSession(headless=True)
+        page = Mock()
+        page.title.side_effect = ["", "python tutorial - YouTube"]
+        session.page = page
+        with patch("elvion.browser.youtube.BrowserSession.navigate"):
+            session.navigate("https://www.youtube.com/results?search_query=python", authorized=lambda: True)
+        page.wait_for_timeout.assert_called_once_with(250)
+        page.wait_for_function.assert_not_called()
+
+    def test_interactive_confirmation_returns_valid_response(self):
+        from uuid import uuid4
+        request = SimpleNamespace(confirmation_id=uuid4(), action_digest="a" * 64,
+                                  preview='{"capability":"web.open"}')
+        with patch("builtins.input", return_value="y"), patch("builtins.print"):
+            response = confirm(request)
+        self.assertTrue(response.approved)
+        self.assertEqual(response.confirmation_id, request.confirmation_id)
 
     def test_search_encodes_query_and_keeps_duplicate_titles_distinct(self):
         _, videos = self.search('tiếng Việt "A & B"')
