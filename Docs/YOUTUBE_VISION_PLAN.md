@@ -39,15 +39,20 @@ Ngày cập nhật 04/11/2026. Nền browser/Vision đã được đóng gói t�
 - Harness Vision tái dùng `benchmarks.web_observation.runner`. Capture dev:
   `artifacts/benchmarks/web-observation/capture-73805142f5d6/`, PNG 1280×800,
   actions=0. Không dùng ảnh dev này làm held-out.
-- Pilot ngày 04/11: ảnh truy vấn khác tại
-  `artifacts/benchmarks/youtube-vision/capture-f3a8575c460a/`, PNG 1280×800,
-  actions=0. Người dùng đo ô tìm kiếm `[315.8,5.3,542.3,41.5]` trước inference;
-  annotation được khóa với `expected_status=found`. Reviewer là cùng người
-  tự kiểm, chưa có người thứ hai. `qwen3.5:4b` trả `not_found`/`TARGET_NOT_FOUND`,
-  outcome `false_abstention`, `locate_ms=2762.5`, không click. Ảnh cho thấy ô
-  tìm kiếm có truy vấn bên trong thay cho nhãn “Search”; đây là giả thuyết về
-  nguyên nhân bỏ sót, chưa được kiểm độc lập. Pilot một ca không là held-out
-  hoặc bằng chứng đạt ngưỡng bật Vision live.
+- Pilot ngày 04/11: người dùng đo ô tìm kiếm trên hai ảnh khác nhau trước
+  inference. Ảnh kết quả tại `artifacts/benchmarks/youtube-vision/capture-f3a8575c460a/`
+  khóa box `[315.8,5.3,542.3,41.5]`; ảnh trang chủ tại
+  `artifacts/benchmarks/youtube-vision/capture-8658300f622e/` khóa box
+  `[317.6,8.6,539.9,36.1]`. Cả hai `expected_status=found`, actions=0;
+  reviewer là cùng người tự kiểm, chưa có người thứ hai. Pipeline OCR/Vision
+  `qwen3.5:4b` trả `not_found`/`TARGET_NOT_FOUND` cho cả hai:
+  `false_abstention` ở 2762.5 và 465.0 ms, không click. Ảnh trang chủ hiển thị
+  placeholder “Tìm kiếm”, còn target đầu vào là “Search”; ảnh kết quả chứa
+  truy vấn trong ô. OCR native-v1 và upscale2x-v2 đều có 0 khớp chính xác với
+  “Search” trên cả hai ảnh; ảnh trang chủ cũng không đọc được placeholder mờ.
+  Vì grounder đòi nhãn khớp trước xác minh vai trò, chưa thể quy lỗi riêng cho
+  model 4B. Hai ca pilot không là held-out hoặc bằng chứng đạt ngưỡng bật
+  Vision live.
 
 ## Trạng thái test case
 
@@ -71,7 +76,7 @@ tính là pass native hoặc điểm Vision.
 | YT-13 | Pass unit | Browser đã đóng làm handle hết hạn trước dispatch. |
 | YT-14 | Pass unit nền | Browser adapter uncertain sau lỗi dispatch, không retry; chưa đo YouTube native. |
 | YT-15 | Not run | Consent/login/captcha trên YouTube thật chưa gặp và chưa có fixture riêng. |
-| YT-V01 | Pilot: false abstention | Ô tìm kiếm trên ảnh khác đã khóa nhãn trước inference; model 4B trả `not_found`. Cần thêm reviewer và nhiều scene. |
+| YT-V01 | Pilot: 2 false abstention | Hai ô tìm kiếm đã khóa nhãn trước inference; pipeline OCR/Vision trả `not_found` cả hai. Cần thêm reviewer và nhiều scene. |
 | YT-V02 | Not run | Chưa có scene ngoài viewport. |
 | YT-V03 | Not run | Chưa có scene hai tiêu đề gần giống. |
 | YT-V04 | Not run | Chưa có scene popup che mục tiêu. |
@@ -83,7 +88,7 @@ tính là pass native hoặc điểm Vision.
 | YT-V10 | Pass unit nền | Provider timeout path; chưa đo trên YouTube. |
 
 DOM: 3/3 lượt chờ tiêu đề đạt sau sửa, 1 lượt search qua runtime và 1 lượt mở
-video đạt; mẫu quá nhỏ để ước lượng tỷ lệ. Vision: 1 proposal
-pilot, 0 correct target, 1 false abstention; chưa có bộ held-out. Điều
+video đạt; mẫu quá nhỏ để ước lượng tỷ lệ. Vision: 2 proposal
+pilot, 0 correct target, 2 false abstention; chưa có bộ held-out. Điều
 hướng video: 1 đúng, 0 sai, 0 uncertain trong mẫu native. Latency: chưa lưu
 chuỗi đo đồng nhất nên N/A.
