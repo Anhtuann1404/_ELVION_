@@ -13,8 +13,9 @@ PYTHONPATH=src:. python3 scripts/run_handsfree_voice.py --debug-wake
 rồi mới nói câu hỏi, ví dụ “Chào cậu”. Trong lúc model giải mã sẽ hiện
 `[wake]` với các trạng thái:
 
-- `below_energy`: mức RMS lát cắt chưa đạt420; thử lại gần mic hơn hoặc
-  kiểm mic đầu vào trong macOS. Không tự hạ threshold vì có thể tăng gọi nhầm.
+- `below_energy`: tín hiệu dưới ngưỡng RMS 140.
+- `ambient_only`: tín hiệu có năng lượng nhưng không đủ đoạn nổi bật so
+  với nền trong cửa sổ 1,5 giây. Bộ nhận dạng chưa chạy.
 - `transcribing`: đã có tín hiệu đủ lớn và đang chạy STT; chờ kết quả.
 - `keyword_mismatch`: xem trường `text` để biết model nhận tên thành gì.
 - `stt_error`: lỗi STT; trường `code` giúp phân biệt lỗi thay vì im lặng.
@@ -87,7 +88,7 @@ src/elvion/voice/continuous/
 - **Max Duration Guard**: Giới hạn tối đa 15 giây cho một lượt nói để chống tràn bộ đệm.
 
 ### 2.4. Bộ dò Wake Word & Acoustic Pre-filter ([wakeword.py](file:///Users/yingjunn_/Study_/ELVION/src/elvion/voice/continuous/wakeword.py))
-- **Acoustic Pre-filter**: Chỉ khi lát cắt âm thanh có năng lượng RMS vượt ngưỡng $\ge 420.0$ thì mới kích hoạt bộ giải mã âm vị (PhoWhisper hoặc Qwen), giúp tránh gọi mô hình STT liên tục khi phòng yên tĩnh.
+- **Acoustic Pre-filter**: Runner đợi đủ 1,5 giây âm thanh và cần ít nhất hai khung 100ms đạt RMS 140 và gấp đôi mức nền ước tính. Bộ lọc năng lượng giảm nhận dạng trên nền đều. Tiếng nền biến động vẫn cần kiểm bằng mic thật.
 - **Biểu thức Regex chuẩn hóa**:
   ```python
   _NORMALIZED_KEYWORD_RE = re.compile(

@@ -41,6 +41,20 @@ def make_silence_pcm(duration_seconds: float = 0.1, amplitude: float = 10.0) -> 
 
 class ContinuousVoiceTests(unittest.TestCase):
 
+    def test_live_wake_gate_rejects_steady_noise_and_single_spike(self):
+        verifier = Mock(return_value="elvion")
+        events = []
+        detector = KeywordWakeWordDetector(verifier=verifier, ambient_window_seconds=1.5,
+                                           min_check_interval=0, on_diagnostic=events.append)
+        background = make_sine_pcm(duration_seconds=0.1, amplitude=1100)
+        loud = make_sine_pcm(duration_seconds=0.1, amplitude=4000)
+        for audio in (background * 15, background * 7 + loud + background * 7):
+            self.assertFalse(detector.detect(audio).detected)
+            self.assertEqual(events[-1]["reason"], "ambient_only")
+        verifier.assert_not_called()
+        self.assertTrue(detector.detect(background * 7 + loud * 3 + background * 5).detected)
+        verifier.assert_called_once()
+
     def test_runner_exposes_wake_error_without_changing_saved_context(self):
         import contextlib
         import importlib.util
@@ -68,7 +82,8 @@ class ContinuousVoiceTests(unittest.TestCase):
             factory.assert_called_once()
             self.assertEqual(factory.call_args.kwargs["context"], "none")
             detector = session.call_args.kwargs["wake_detector"]
-            self.assertTrue(detector.detect(make_sine_pcm(duration_seconds=0.5)).detected)
+            self.assertTrue(detector.detect(make_silence_pcm(duration_seconds=1.0) +
+                                            make_sine_pcm(duration_seconds=0.5)).detected)
             stt.transcribe.side_effect = VoiceInputError("STT_FAILED")
             with self.assertRaises(VoiceInputError):
                 detector.verifier(make_sine_pcm(duration_seconds=0.5))
@@ -470,6 +485,12 @@ class ContinuousVoiceTests(unittest.TestCase):
         simulated_time[0] += 3.6
         session.feed_audio(silence_frame)
         self.assertEqual(session.state, ContinuousSessionState.STANDBY)
+
+    def test_wake_accepts_observed_variant_only_as_complete_call(self):
+        detector = KeywordWakeWordDetector()
+        self.assertTrue(detector._matches_text("Alvin ơi!"))
+        for phrase in ("Alvin", "Alvin ở", "nhìn ơi", "Alvin ơi mở cửa"):
+            self.assertFalse(detector._matches_text(phrase))
 
     def test_keyword_boundary_matching_rejects_substrings(self):
         """Wake word matcher requires word boundaries and rejects keywords embedded in words."""

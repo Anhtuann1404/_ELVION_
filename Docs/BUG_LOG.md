@@ -1,6 +1,74 @@
 # Nhật ký lỗi và vướng mắc ELVION
 
+## HANDSFREE-ENROLL-006 — Bộ dò mẫu thử còn bỏ lỡ và thiếu đối chứng độc lập
+
+- Người dùng thử pilot trên mic thật và báo luồng hoạt động ổn. Ghi nhận
+  kiểm thử thủ công đạt trong lượt đó. Chưa có số lượt hoặc thời lượng
+  nghe nền để ước tính tỷ lệ bỏ lỡ và thức nhầm dài hạn.
+
+- Đã phát lại tập kiểm qua khung 20ms, cửa sổ 1,5s và cùng gate của
+  runner. Nhận 7/9, kích hoạt 0/5 đối chứng. Tối ưu hàng DTW bằng NumPy
+  giữ nguyên số đếm, thời gian chấm trung vị giảm từ 55,2ms xuống 6,2ms
+  trên mẫu gọi. Đây là phép phát lại có nhịp mô phỏng và đệm im lặng,
+  chưa đo từ cuối câu gọi tới tiếng chuông thật. Đã mở pilot opt-in
+  `--acoustic-wake`, chỉ fit từ train. 25 test continuous đạt. Còn mở
+  vì bỏ lỡ hai mẫu và chưa có phép đo thức nhầm trong thời gian dài.
+
+- Đã có 5 đối chứng held-out. So sánh offline trên cùng 14 clip hoàn
+  chỉnh: MFCC/DTW nhận 5/9 câu gọi và kích hoạt 0/5 đối chứng. Qwen0.6B
+  cộng bộ khớp chữ nhận 0/9, kích hoạt 0/5, không có lỗi STT. Kết quả
+  chưa đo luồng cửa sổ cuộn, độ trễ hay thức nhầm mỗi giờ. Còn mở.
+
+- 04/11/2026. Chạy `scripts/evaluate_wake_voice.py` trên kho riêng. MFCC
+  và DTW nhận 5/9 mẫu gọi held-out với ngưỡng chọn từ train. Chặn 11/11
+  đối chứng train. Chưa có đối chứng held-out hoặc phép đo streaming.
+- Lần chạy đầu lỗi JSON do số NumPy. Đã đổi ngưỡng sang float Python,
+  lần chạy lại xuất số liệu tổng hợp thành công. Bộ dò vẫn ở mức thử
+  nghiệm. Tiếp theo thu đối chứng độc lập và đo cùng tập với Qwen.
+
+## HANDSFREE-ENROLL-005 — Kho ASR chặn cùng câu gọi ở tập kiểm riêng
+
+- 04/11/2026. Kho mẫu ASR báo `CROSS_SPLIT_PHRASE` nếu cùng câu xuất hiện
+  ở hai tập. Wake enrollment cần câu gọi giống nhau với bản thu độc lập.
+- Trong chế độ `--wake`, `PersonalCorpus` cho phép cùng câu gọi chuẩn
+  giữa các mẫu dương ở hai tập. Kiểm trùng PCM vẫn áp dụng trên toàn kho.
+  17 test personal voice đạt, gồm lưu, audit và export mẫu kiểm độc lập
+  và từ chối bản thu trùng. Chờ thu mẫu mic thật và đánh giá bộ dò.
+
+## HANDSFREE-NOISE-004 — STANDBY chạy STT liên tục khi người dùng im lặng
+
+- 04/11/2026, `f7c941f`. Người dùng thấy nhiều lượt nhận dạng và mismatch
+  khi chưa nói. Chưa có audio để xác định nguồn tín hiệu.
+- Gate hiện chỉ so mức RMS đỉnh với ngưỡng 140. Một nền âm đều hoặc một
+  xung lớn có thể qua gate và khiến STT sinh chữ. Chưa thấy wake thành công
+  trong lượt báo lỗi. Đang kiểm bằng PCM tổng hợp và sửa gate tại runner.
+
+- Đã sửa, chờ kiểm chứng trên mic thật. Runner dùng cửa sổ 1,5 giây,
+  ước tính nền từ tứ phân vị thấp của RMS theo khung 100ms và yêu cầu hai
+  khung cao ít nhất gấp đôi nền. `ambient_only` báo đã chặn trước STT.
+  24 test continuous đạt, gồm nền đều RMS khoảng 778, một xung mạnh và
+  đoạn năng lượng tăng đủ lâu. Tiếng nền biến động vẫn có thể qua gate.
+  Bước tiếp theo là thử im lặng rồi gọi tên trong cùng môi trường mic.
+
+- Kiểm thực tế từ người dùng 04/11: đã thấy `ambient_only` giữa các
+  lượt nhận dạng. Gate đã chặn được tín hiệu ở các cửa sổ đó. Chưa đủ
+  bằng chứng để kết luận toàn bộ khoảng im lặng đều được chặn.
+
 ## HANDSFREE-WAKE-003 — Người dùng gọi tên nhưng STANDBY không phản ứng
+
+- 04/11, người dùng xác nhận lượt khớp tên trước đã chuyển AWAKE và phát
+  chuông, rồi chủ động dừng. Lượt sau vẫn có nhiều mismatch và một lỗi
+  STT_FAILED chưa rõ nguyên nhân. Đã thêm khớp chính xác toàn câu cho một
+  biến thể nhận dạng quan sát được. 25 test hands-free đạt, gồm từ chối
+  tên riêng lẻ và câu dài hơn. Chờ kiểm lại trên mic và thử câu lệnh sau
+  LISTENING. Vẫn có thể thức nếu nghe đúng cụm biến thể từ nguồn khác.
+
+- Kiểm thực tế từ người dùng 04/11: nhiều lượt mismatch dù tín hiệu
+  đủ lớn, sau đó có một `matched` với tên chuẩn, inference khoảng 429ms.
+  Xác nhận bộ dò đã khớp tên trên giọng thật một lần. Chưa có bằng chứng
+  chuyển AWAKE/LISTENING hoặc tỷ lệ thành công theo từng lần gọi. Giữ mở
+  để đo số lần gọi riêng biệt và kiểm chuyển trạng thái trước khi chỉnh
+  cách cắt audio hoặc thêm biến thể tên.
 
 - **Ngày/phạm vi:** 02/11/2026, HEAD5cd0a7b, runner hands-free thật.
   Người dùng xác nhận mic mở, trạng thái STANDBY, gọi không thức.

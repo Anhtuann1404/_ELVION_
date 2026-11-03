@@ -76,6 +76,7 @@ class KeywordWakeWordDetector:
         clock: Callable[[], float] = time.monotonic,
         min_check_interval: float = 0.4,
         energy_threshold: float = 140.0,
+        ambient_window_seconds: float | None = None,
         on_diagnostic: Callable[[dict], None] | None = None,
     ):
         self.keywords = keywords
@@ -84,6 +85,7 @@ class KeywordWakeWordDetector:
         self.clock = clock
         self.min_check_interval = float(min_check_interval)
         self.energy_threshold = float(energy_threshold)
+        self.ambient_window_seconds = ambient_window_seconds
         self.on_diagnostic = on_diagnostic
         self._last_check_time = 0.0
         self._simulated_matches: list[WakeWordResult] = []
@@ -104,6 +106,11 @@ class KeywordWakeWordDetector:
         if not audio_bytes or len(audio_bytes) < 8000:  # STT requires at least 250ms
             return WakeWordResult(detected=False, timestamp=now)
 
+        if self.ambient_window_seconds is not None:
+            window_bytes = int(self.ambient_window_seconds * sample_rate) * 2
+            if len(audio_bytes) < window_bytes:
+                return WakeWordResult(detected=False, timestamp=now)
+
         # 2. If a micro-verifier (e.g. PhoWhisper slice) is attached, run fast transcript check
         if self.verifier is not None:
             if now - self._last_check_time < self.min_check_interval:
@@ -116,6 +123,16 @@ class KeywordWakeWordDetector:
             if effective_rms < self.energy_threshold:
                 self._diagnostic(reason="below_energy", rms=round(effective_rms))
                 return WakeWordResult(detected=False, timestamp=now)
+
+            if self.ambient_window_seconds is not None:
+                block_bytes = (sample_rate // 10) * 2
+                levels = [calculate_pcm_rms(audio_bytes[offset:offset + block_bytes])
+                          for offset in range(0, len(audio_bytes) - block_bytes + 1, block_bytes)]
+                floor = sorted(levels)[len(levels) // 4]
+                speech_threshold = max(self.energy_threshold, floor * 2)
+                if sum(level >= speech_threshold for level in levels) < 2:
+                    self._diagnostic(reason="ambient_only", rms=round(effective_rms), floor_rms=round(floor))
+                    return WakeWordResult(detected=False, timestamp=now)
 
             self._last_check_time = now
             started = time.monotonic()
@@ -151,7 +168,11 @@ class KeywordWakeWordDetector:
     def _matches_text(self, text: str) -> bool:
         norm = text.lower().strip()
         cleaned = re.sub(r"[^\w\s]", " ", norm)
-        tokens = set(cleaned.split())
+        words = cleaned.split()
+        # Observed ASR substitution for the complete Vietnamese call.
+        if words == ["alvin", "ơi"]:
+            return True
+        tokens = set(words)
 
         for kw in self.keywords:
             kw_parts = kw.lower().split()

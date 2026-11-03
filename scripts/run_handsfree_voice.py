@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -60,7 +61,8 @@ def speak(text: str) -> None:
         )
 
 
-def run_live_mic(speak_enabled: bool = True, debug_wake: bool = False) -> None:
+def run_live_mic(speak_enabled: bool = True, debug_wake: bool = False,
+                 acoustic_wake: bool = False) -> None:
     # 1. Load saved voice preferences
     try:
         prefs = VoicePreferencesStore().load()
@@ -115,7 +117,19 @@ def run_live_mic(speak_enabled: bool = True, debug_wake: bool = False) -> None:
         conv_service = None
         session_id = None
 
+    if acoustic_wake:
+        from elvion.storage.traces import default_data_dir
+        try:
+            from evaluate_wake_voice import acoustic_match, fit, read_samples
+            references, threshold, report = fit(read_samples(default_data_dir() / 'wake-voice' / 'corpus.sqlite3'))
+        except (ImportError, OSError, ValueError, sqlite3.Error):
+            print('Không nạp được bộ dò câu gọi. Kiểm tra kho wake-voice và NumPy/SciPy.')
+            return
+        print(f'Bộ dò câu gọi thử nghiệm đã nạp {report["train_positive_usable"]} mẫu giọng.')
+
     def verify_wake_slice(pcm_slice: bytes) -> str:
+        if acoustic_wake:
+            return 'elvion' if acoustic_match(pcm_slice, references, threshold) else ''
         """Transcribe recent 1.5s slice when acoustic energy rises in STANDBY."""
         with tempfile.TemporaryDirectory(prefix="elvion-wake-") as tmp_dir:
             wav_path = Path(tmp_dir) / "slice.wav"
@@ -133,7 +147,7 @@ def run_live_mic(speak_enabled: bool = True, debug_wake: bool = False) -> None:
 
     def wake_diagnostic(event: dict) -> None:
         nonlocal last_quiet_diagnostic
-        if event["reason"] == "below_energy":
+        if event["reason"] in {"below_energy", "ambient_only"}:
             now = time.monotonic()
             if now - last_quiet_diagnostic < 1.0:
                 return
@@ -143,9 +157,11 @@ def run_live_mic(speak_enabled: bool = True, debug_wake: bool = False) -> None:
     if debug_wake:
         print("[wake] Chẩn đoán chỉ hiện tại terminal, có thể chứa lời nhận dạng từ mic; không ghi file log.", flush=True)
 
+    wake_window_seconds = 1.5
     wake_detector = KeywordWakeWordDetector(
         verifier=verify_wake_slice,
         energy_threshold=140.0,
+        ambient_window_seconds=wake_window_seconds,
         min_check_interval=0.4,
         on_diagnostic=wake_diagnostic if debug_wake else None,
     )
@@ -214,7 +230,7 @@ def run_live_mic(speak_enabled: bool = True, debug_wake: bool = False) -> None:
         on_wake=on_wake,
         on_transcript=on_transcript,
         on_reply=on_reply,
-        wake_slice_seconds=1.5,
+        wake_slice_seconds=wake_window_seconds,
     )
 
     running = True
@@ -299,12 +315,15 @@ def main() -> int:
     )
     parser.add_argument("--debug-wake", action="store_true",
                         help="Hiện mức mic, lỗi STT và chữ nhận dạng tại terminal; không lưu log")
+    parser.add_argument('--acoustic-wake', action='store_true',
+                        help='Thử bộ dò câu gọi từ mẫu giọng đã thu')
     args = parser.parse_args()
 
     if args.simulate:
         run_simulated_demo()
     else:
-        run_live_mic(speak_enabled=not args.no_speak, debug_wake=args.debug_wake)
+        run_live_mic(speak_enabled=not args.no_speak, debug_wake=args.debug_wake,
+                     acoustic_wake=args.acoustic_wake)
     return 0
 
 
